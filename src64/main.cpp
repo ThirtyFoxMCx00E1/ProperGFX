@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.4, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Proper GFX Mobile (v1.4.5, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -32,7 +32,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.4, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.5, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -147,7 +147,7 @@ static void OnFrame()
         g_cfg.shadowRetry = false;
         if (g_guardPath[0]) remove(g_guardPath);
         g_guardTripped = false; g_guardActive = false; g_guardFrames = g_guardTotal = 0;
-        if (g_cfg.shadows && g_cfg.shadowGuard && g_guardPath[0])    // re-arm: if the retry itself crashes, the next launch is in safe mode again
+        if (g_cfg.shadows && g_cfg.shadowGuard && g_guardPath[0] && g_cfg.shadowMethod == 1)    // re-arm (In-shader): if the retry itself crashes, the next launch is in safe mode again
         { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("retry in progress\n", gf); fclose(gf); g_guardActive = true; } }
         Shadow_SetGuardFailed(false);
     }
@@ -192,11 +192,17 @@ static void OnFrame()
     // crash guard: the guard file exists from launch until shadows have run for 120 captured frames (or the game has rendered ~1 minute).
     // v1.2 only counted frames with a successful replay (900 of them), so a quit before that - or a setup where nothing was replayed - left the file behind
     // and silently switched shadows off for every later launch.
+    // 1.4.5 Deferred: nothing is compiled into the game at load, so the guard only covers the first seconds of the shadow pass itself:
+    // armed when the first shadows are drawn, removed after 300 frames with shadows (~10 s). Closing the game normally later never trips it.
+    static bool s_defGuardDone = false;
+    if (g_cfg.shadowMethod == 0 && g_cfg.shadowGuard && !g_guardActive && !s_defGuardDone && !g_guardTripped && g_guardPath[0] && Shadow_Stats().ready && Shadow_Stats().replayed > 0)
+    { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("deferred shadow pass: first seconds\n", gf); fclose(gf); g_guardActive = true; } s_defGuardDone = true; }
     if (g_guardActive)
     {
         ++g_guardTotal;
         if (Shadow_Stats().replayed > 0) ++g_guardFrames;
-        if (g_guardFrames >= 600 || g_guardTotal >= 2400) { remove(g_guardPath); g_guardActive = false; }
+        const bool done = g_cfg.shadowMethod == 0 ? (g_guardFrames >= 300 || g_guardTotal >= 900) : (g_guardFrames >= 600 || g_guardTotal >= 2400);
+        if (done) { remove(g_guardPath); g_guardActive = false; }
     }
 }
 
@@ -419,12 +425,16 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
             char old13[640]; snprintf(old13, sizeof(old13), "%s/shadow_guard_v13.txt", g_dir);
             if (access(old13, F_OK) == 0) { remove(old13); logger->Info("removed the 1.3.0/1.3.1 shadow guard file"); }
         }
-        snprintf(g_guardPath, sizeof(g_guardPath), "%s/shadow_guard_v132.txt", g_dir);
+        {   // 1.3.2 - 1.4.4 guard file: 1.4.3 crashed at load (dlsym) AFTER writing it, so every later launch started in safe mode - drop it
+            char old132[640]; snprintf(old132, sizeof(old132), "%s/shadow_guard_v132.txt", g_dir);
+            if (access(old132, F_OK) == 0) { remove(old132); logger->Info("removed the old shadow_guard_v132.txt (left by the 1.4.3 start-up crash)"); }
+        }
+        snprintf(g_guardPath, sizeof(g_guardPath), "%s/shadow_guard_v145.txt", g_dir);
         snprintf(PS_LogFilePath(), 640, "%s/propergfx_log.txt", g_dir);
         { FILE* lf = fopen(PS_LogFilePath(), "rb"); if (lf) { fseek(lf, 0, SEEK_END); long sz = ftell(lf); fclose(lf); if (sz > 96 * 1024) remove(PS_LogFilePath()); } }
         PS_FileLog("---- launch: Proper GFX Mobile " PS_VERSION " (%d-bit) ----", PS_BITS);
-        if (g_cfg.shadows && g_cfg.shadowGuard && access(g_guardPath, F_OK) == 0) { g_guardTripped = true; logger->Info("shadow_guard_v132.txt found: shadows are in SAFE MODE (previous launch did not finish). Menu > DynamicShadows > Retry shadows, then restart."); }
-        else if (g_cfg.shadows && g_cfg.shadowGuard) { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("exists while the first minute of shadows has not finished; Retry shadows in the menu or CrashGuard = 0 in " PS_INI_NAME " disables this\n", gf); fclose(gf); g_guardActive = true; } }
+        if (g_cfg.shadows && g_cfg.shadowGuard && access(g_guardPath, F_OK) == 0) { g_guardTripped = true; logger->Info("shadow_guard_v145.txt found: shadows are in SAFE MODE (previous launch did not finish). Menu > DynamicShadows > Retry shadows."); PS_FileLog("shadows: SAFE MODE (shadow_guard_v145.txt from the previous launch)"); }
+        else if (g_cfg.shadows && g_cfg.shadowGuard && g_cfg.shadowMethod == 1) { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("exists while the first minute of shadows has not finished; Retry shadows in the menu or CrashGuard = 0 in " PS_INI_NAME " disables this\n", gf); fclose(gf); g_guardActive = true; } }
         if (g_guardTripped) Shadow_SetGuardFailed(true);
         // 1.4.3: the patched receivers are only needed by Method = InShader; Deferred leaves the game's shaders alone (like libZyZyGFX64)
         World_SetCompileShadows(g_cfg.shadows && !g_guardTripped && g_cfg.shadowMethod == 1);
@@ -460,8 +470,7 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
                    aml->GetSym(hGame, "_Z25RQ_Command_rqTargetSelectRPc") ? "hooked" : "MISSING");
     }
     else PS_FileLog("%s", Scene_Stats().note);
-    if (g_cfg.worldPatch || g_cfg.shadows)
-        HOOKSYM(RQ_Command_rqDrawIndexed, hGame, "_Z24RQ_Command_rqDrawIndexedRPc");   // free while not capturing, lets Medium/High switch shadows on live
+    HOOKSYM(RQ_Command_rqDrawIndexed, hGame, "_Z24RQ_Command_rqDrawIndexedRPc");   // always (1.4.5): free while not capturing, lets Medium/High switch shadows on live even after a launch on Low
     if (g_cfg.worldPatch)
     {
         HOOKSYM(ES2Shader_Build,          hGame, "_ZN9ES2Shader5BuildEPKcS1_");        // installed before the source hook: nothing patched may reach the game untested

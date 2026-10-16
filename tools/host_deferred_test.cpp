@@ -273,6 +273,9 @@ int main()
     printf("      half-res mask: behind house %.2f, open ground %.2f\n", hS, hL);
     CHECK(hS < 0.65f && hL > 0.96f, "half-resolution mask gives the same result");
     st.shadowMaskHalf = false;
+    // 1.4.5: adaptive quality level 3 must not switch shadows off
+    { PSSettings cur = st; Shadow_Configure(cur, 3); CHECK(Shadow_Stats().enabled, "adaptive level 3 keeps shadows on (slower updates only)"); Shadow_Configure(cur, 0); }
+    { PSSettings off = st; off.shadows = false; Shadow_Configure(off, 0); CHECK(strstr(Shadow_Stats().note, "unchecked") != nullptr, "status says why shadows are off"); Shadow_Configure(st, 0); }
     // the game re-creates its target (resolution change): the depth is re-attached
     glBindRenderbuffer(GL_RENDERBUFFER, sceneRb); glRenderbufferStorage(GL_RENDERBUFFER, 0x88F0, W, H);
     glBindFramebuffer(GL_FRAMEBUFFER, sceneFbo); glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, sceneRb); glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, sceneRb);

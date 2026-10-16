@@ -615,7 +615,7 @@ void DefMaskAndApply(GLint sceneFbo, GLuint depthTex, int w, int h)
     float ivp[16]; for (int i = 0; i < 16; ++i) ivp[i] = (float)I[i];
     float L0[16], L1[16]; RelToCam(D.lvp[0], fc.cam, L0); RelToCam(D.lvp[1], fc.cam, L1);
 
-    const int scale = G.s.shadowMaskHalf ? 2 : 1;
+    const int scale = (G.s.shadowMaskHalf || G.level >= 2) ? 2 : 1;      // adaptive quality 2+: half-res mask
     const int mw = (w + scale - 1) / scale, mh = (h + scale - 1) / scale;
     if (!DefEnsureMask(mw, mh)) return;
     const float res = (float)D.mapRes;
@@ -688,8 +688,14 @@ void Shadow_BuildLightMatrix(const float sunDir[3], const float center[3], float
 void Shadow_Configure(const PSSettings& s, int level)
 {
     G.s = s; G.level = level;
-    G.enabled = s.enabled && s.shadows && level < 3 && !G.failed && !G.noHighp;
+    // 1.4.5: adaptive quality no longer switches shadows off (level 3 did it silently: "0 captured" and a stale status line);
+    // it only lowers the update rate and the mask resolution (Shadow_EndFrame / DefMaskAndApply)
+    const bool was = G.enabled;
+    G.enabled = s.enabled && s.shadows && !G.failed && !G.noHighp;
     G.stats.enabled = G.enabled;
+    if (!G.enabled && !G.failed && !G.noHighp)
+        Note(!s.enabled ? "off: Proper GFX master switch is off" : "off: DynamicShadows is unchecked (the Low preset turns it off - pick Medium or High)");
+    else if (G.enabled && !was) Note(s.shadowMethod == 0 ? "starting (deferred)..." : "starting...");
     G.stats.deferred = s.shadowMethod == 0;
     Scene_SetWanted(G.enabled && s.shadowMethod == 0 && !G.def.failed);
 }
@@ -835,14 +841,19 @@ void Shadow_EndFrame()
         else if (G.enabled && deferred && !G.def.failed)
         {
             const PSSceneStats& ss = Scene_Stats();
-            if (!ss.rqReady) Note(ss.note[0] ? ss.note : "waiting for the render queue (after-scene event not delivered yet)");
+            G.stats.captured = (int)G.draws.size();
+            if (!ss.rqSymbols || ss.rqBadLayout || ss.disabled) Note(ss.note[0] ? ss.note : "deferred shadows unavailable - try Method = In-shader");
+            else if (!ss.rqReady) Note("waiting for the game's render queue (after-scene event not delivered yet)");
+            else if (ss.posted[2] == 0) Note("RenderScene was not called this frame (menu / loading screen?)");
+            else if (!ss.depthTex) Note("no readable depth on the game's scene target yet (see Scene line below)");
+            else Note("the after-scene pass did not run this frame");
         }
         G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.list.clear();
     }
     if (deferred) { G.def.cam.ok = false; G.def.sceneDone = false; }
     ++G.frame;
     if (!G.enabled) { if (G.ready && G.s.shadows == false) { /* keep texture, strength goes to 0 via Shadow_Uniforms */ } return; }
-    int every = G.s.shadowEvery * (G.level >= 2 ? 2 : 1);
+    int every = G.s.shadowEvery * (G.level >= 3 ? 3 : (G.level >= 2 ? 2 : 1));
     if (every < 1) every = 1;
     G.capturing = (G.frame % (uint32_t)every) == 0;
     if (G.capturing) { G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.haveCam = G.haveDir = false; G.stats.rejected = 0; G.stats.rejBlend = G.stats.rejNoDepthWrite = G.stats.rejNoIndexBuffer = G.stats.rejVertexFormat = G.stats.rejNoShaderInfo = G.stats.rejMode = G.stats.rejDistance = G.stats.rejStale = 0; }
@@ -861,8 +872,9 @@ uint32_t Shadow_FrameId() { return G.frameId + G.frame * 0u; }
 bool Shadow_SetGuardFailed(bool failed)
 {
     G.failed = failed; G.stats.guardTripped = failed;
-    if (failed) Note("SAFE MODE: the previous launch did not finish, shadows are off. Tap 'Retry shadows' in the menu and restart the game.");
-    else Note("retry requested - restart the game to compile the shadow receivers");
+    if (failed) Note(G.s.shadowMethod == 0 ? "SAFE MODE: the game closed while the shadow pass was running last time. Tap 'Retry shadows' (works right away)."
+                                           : "SAFE MODE: the previous launch did not finish, shadows are off. Tap 'Retry shadows' in the menu and restart the game.");
+    else Note(G.s.shadowMethod == 0 ? "retry: shadows on" : "retry requested - restart the game to compile the shadow receivers");
     return G.failed;
 }
 void Shadow_ClearProgramCache() { G.progs.clear(); G.vcache.clear(); }

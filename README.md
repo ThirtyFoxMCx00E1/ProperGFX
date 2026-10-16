@@ -1,4 +1,4 @@
-# Proper GFX Mobile 1.4.4 (AML mod for GTA San Andreas Android)
+# Proper GFX Mobile 1.4.5 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
@@ -14,6 +14,9 @@ Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 3. Start the game. Everything lives in `files/ProperGFX/`; settings are `files/ProperGFX/TYFMC.ProperGFX.ini`.
 
 Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
+
+## 1.4.5 - shadows stuck in safe mode
+* The 1.4.3 crash left the old crash-guard file behind, so shadows started in safe mode every time and "Retry" asked for a restart. The file is removed. With Method = Deferred, Retry / Medium / High switch shadows on immediately. Adaptive quality no longer turns shadows off, and the status line tells you why shadows are off.
 
 ## 1.4.4 hotfix
 * Fixes the crash at game start in 1.4.3 (64-bit): the new render-queue code looked up game symbols with `dlsym` on AML's library handle, which the Android linker rejects. It now uses AML's `GetSym`.

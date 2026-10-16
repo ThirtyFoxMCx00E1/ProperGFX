@@ -253,12 +253,16 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         if (s.shadowMethod == 0) Note("Deferred: casters -> 2 cascades (shadow_depth.glsl), then shadow_mask.glsl rebuilds every pixel's position from the scene depth and darkens it (shadow_apply.glsl). Game shaders are not touched.");
         else Note("In-shader: shadow code = shadows.glsl (fragment + vertex) compiled into the game's world shaders.");
         Note("Sun source Auto = the game's time-cycle sun vector (follows the game clock). Strength can follow the Shdw column of timecyc.dat.");
-        Note("Buildings, roads, terrain and vehicles cast and receive shadows; pedestrians do not.");
+        Note(s.shadowMethod == 0 ? "Buildings, roads, terrain, trees and vehicles cast; everything on screen receives (pedestrians too). Applies right away, no restart."
+                                 : "Buildings, roads, terrain and vehicles cast and receive shadows; pedestrians do not.");
         if (s.shadows && s.shadowMethod == 1 && st.shadowReceivers == 0 && st.patchedShaders >= 10)
             ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Restart the game to finish turning shadows on (the receiver code is compiled into the shaders when the game starts).");
         if (st.shadow)
         {
             const PSShadowStats& sh = *st.shadow;
+            ImGui::TextWrapped("Status: %s", sh.note[0] ? sh.note : (sh.ready ? "ok" : "waiting for the first frame"));
+            ImGui::Text("Method: %s   shadows %s%s", s.shadowMethod == 0 ? "Deferred" : "In-shader", sh.enabled ? "on" : "OFF",
+                        (st.fx && st.fx->adaptiveLevel >= 2) ? "   (adaptive quality: slower updates, half-res mask)" : "");
             ImGui::Text("Casters: %d captured, %d rendered, %d skipped", sh.captured, sh.replayed, sh.rejected);
             ImGui::Text("Remembered: %d casters (%d kept although out of view), %d draws into other targets ignored", sh.cacheSize, sh.cacheKept, sh.otherTargets);
             if (s.shadowMethod == 1) ImGui::Text("Receivers: %d shader variants carry the shadow lookup", st.shadowReceivers);
@@ -283,7 +287,6 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
             ImGui::Text("Sun (%.2f %.2f %.2f) from %s", sh.sunDir[0], sh.sunDir[1], sh.sunDir[2], sh.sunSource == 1 ? "time cycle" : (sh.sunSource == 2 ? "light uniform" : "-"));
             ImGui::TextDisabled("skipped: blend %d, no depth write %d, no index buf %d, vertex fmt %d, shader %d, mode %d, far %d, stale %d",
                                 sh.rejBlend, sh.rejNoDepthWrite, sh.rejNoIndexBuffer, sh.rejVertexFormat, sh.rejNoShaderInfo, sh.rejMode, sh.rejDistance, sh.rejStale);
-            ImGui::TextWrapped("Status: %s", sh.note[0] ? sh.note : (sh.ready ? "ok" : "waiting for the first frame"));
             if (sh.guardTripped || (sh.note[0] && strstr(sh.note, "SAFE MODE")))
                 if (ImGui::Button("Retry shadows (picking Medium / High does this too)")) s.shadowRetry = true;
         }

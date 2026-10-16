@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.5
+* 64-bit: shadows stuck off ("0 captured", status frozen on "retry requested - restart the game"):
+  * the 1.4.3 start-up crash left `shadow_guard_v132.txt` behind, so every launch started in safe mode; that file is deleted and the guard is now `shadow_guard_v145.txt`.
+  * Method = Deferred: no safe mode at load (nothing is compiled into the game); the guard only covers the first ~10 s of the shadow pass, and Retry / Medium / High work right away without a restart.
+  * adaptive quality level 3 no longer switches shadows off silently; level 2+ uses the half-res mask and slower updates instead.
+  * the status line says why shadows are off (master switch, DynamicShadows unchecked, render queue, scene depth); the menu shows Method and on/off.
+  * the draw hook is always installed, so shadows can be turned on live after a launch on Low.
+
 ## 1.4.4 (hotfix)
 * 64-bit: crash at game start (SIGSEGV in the linker, `soinfo::find_symbol_by_name` <- `dlsym` <- `OnModLoad`, seen on realme / Android 16). 1.4.3's render-queue setup passed AML's `GetLibHandle` value to `dlsym`, but that value is not a `dlopen` handle. The symbols are now resolved with `aml->GetSym` like every other game symbol.
 
