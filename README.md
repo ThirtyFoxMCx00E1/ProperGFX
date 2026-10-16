@@ -5,7 +5,7 @@
 | 32-bit | GTA SA **2.00** | armeabi-v7a | `libProperGFX32.so` | `src32/` | C++/H only (AML + SAUtils), built into the `.so` |
 | 64-bit | GTA SA **2.10** | arm64-v8a | `libProperGFX64.so` | `src64/` + `shaders/{fragment,vertex}` | C++/H + **GLSL**, compiled into the `.so` |
 
-For **AML 1.4.0** with **FLA 7.5** (no address patches, everything is hooked by exported symbol name). Uses [SAUtils](https://github.com/ThirtyFoxMCx00E1/SAUtils) when installed (optional).
+For **AML 1.4.0** with **FLA 7.6** (no address patches, everything is hooked by exported symbol name). Uses [SAUtils](https://github.com/ThirtyFoxMCx00E1/SAUtils) when installed (optional).
 Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 
 ## Install
