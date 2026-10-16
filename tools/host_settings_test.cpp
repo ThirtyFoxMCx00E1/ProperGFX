@@ -1,4 +1,4 @@
-#include "../src/ps_settings.h"
+#include "../src64/ps_settings.h"
 #include <stdio.h>
 #include <math.h>
 #include <string.h>

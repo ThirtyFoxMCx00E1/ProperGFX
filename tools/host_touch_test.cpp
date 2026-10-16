@@ -4,9 +4,9 @@
 #include <GLES2/gl2.h>
 #include <stdio.h>
 #include <math.h>
-#include "../src/ps_fx.h"
-#include "../src/ps_glstate.h"
-#include "../src/ps_ui.h"
+#include "../src64/ps_fx.h"
+#include "../src64/ps_glstate.h"
+#include "../src64/ps_ui.h"
 static int fails = 0;
 bool UI_TestButtonRect(float out[4]);
 void UI_TestOpen(bool o, int tab);

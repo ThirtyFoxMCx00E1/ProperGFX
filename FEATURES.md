@@ -1,4 +1,6 @@
-# Proper Shaders (PC) → Proper GFX Mobile 1.3 (GTA SA): feature status
+# Proper Shaders (PC) → Proper GFX Mobile 1.4 (GTA SA): feature status
+
+> 1.4: the 64-bit build (GTA SA 2.10) runs every effect from editable `.glsl` files in `files/ProperGFX/shaders/{vertex,fragment}/`; the 32-bit build (GTA SA 2.00) has the same effects built into the `.so` (C++/H only), without the new SunVector / bokeh / custom-pass extras.
 
 Legend: ✅ implemented · 🟡 approximated with a screen-space / shader-patch / single-shadow-map substitute · ❌ engine = cannot do in GTA SA Mobile
 
@@ -21,13 +23,13 @@ Legend: ✅ implemented · 🟡 approximated with a screen-space / shader-patch 
 | 15 | Ambient occlusion (SSAO/HBAO/SSGI) | ❌ engine = cannot do in GTA SA Mobile | Needs depth buffer. |
 | 16 | HDR simulation + tonemapping (ACES/Timothy) | ✅ implemented | Pseudo-HDR expansion + ACES / Lottes(Timothy) / Reinhard. |
 | 17 | HDR composition / postfx (banding fix) | ✅ implemented | Triangular dithering in the final pass removes dark-gradient banding. |
-| 18 | LUT | ✅ implemented | 7 built-in grades + optional 256x16 LUT strip (.bmp/.tga). |
+| 18 | LUT | ✅ implemented | 7 built-in grades + any LUT image (1.4): PNG / BMP (any variant) / TGA (incl. RLE) / JPG, strips 256x16, 1024x32, 4096x64 or square atlases 64x64 / 512x512; file name not case-sensitive (`Lut.bmp`), upside-down LUTs auto-detected, live reload, `[LUT] Amount` (default 1.0). |
 | 19 | Self-exposure | ✅ implemented | GPU-only log-average luma, no read-back stalls. |
 | 20 | Bloom | ✅ implemented | Soft-knee bright pass + 2x separable gaussian at 1/4 res. |
 | 21 | Sun rays | ✅ implemented | Screen-space radial shafts toward the sun (auto-off if camera not found). |
 | 22 | SMAA with temporal | 🟡 approximated | FXAA 1.0 instead (no history buffer / depth). |
 | 23 | AMD Contrast Adaptive Sharpening | ✅ implemented | FidelityFX CAS formula. |
-| 24 | Adaptive Depth of Field | 🟡 approximated | Tilt-shift pseudo-DoF; true DoF needs depth. |
+| 24 | Adaptive Depth of Field | 🟡 approximated | Tilt-shift pseudo-DoF; 64-bit 1.4: `dof.glsl` with TiltShift / CenterFocus modes, bokeh highlights, underwater blur (UnderWaterness). True DoF needs depth. |
 | 25 | Simple dithered sky shader | 🟡 approximated | Global dithering removes sky banding; sky shader itself unchanged. |
 | 26 | PBR sky shader with sky blend | ❌ engine = cannot do in GTA SA Mobile | Would require replacing the sky pipeline. |
 | 27 | New horizon fog | 🟡 approximated | Fog curve + density patched into the game's object shaders. |

@@ -10,9 +10,9 @@
 #include <math.h>
 #include <vector>
 #include <string>
-#include "../src/ps_shadow.h"
-#include "../src/ps_world.h"
-#include "../src/ps_glstate.h"
+#include "../src64/ps_shadow.h"
+#include "../src64/ps_world.h"
+#include "../src64/ps_glstate.h"
 
 static int fails = 0;
 #define CHECK(c, msg) do { bool ok_ = (c); printf("%s  %s\n", ok_ ? "PASS" : "FAIL", msg); if (!ok_) ++fails; } while (0)

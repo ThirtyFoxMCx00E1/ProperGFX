@@ -9,8 +9,8 @@
 #include <vector>
 #include <chrono>
 #include <time.h>
-#include "../src/ps_fx.h"
-#include "../src/ps_glstate.h"
+#include "../src64/ps_fx.h"
+#include "../src64/ps_glstate.h"
 
 int main(int argc, char** argv)
 {

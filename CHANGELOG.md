@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0
+* Source split: `src32/` (GTA SA 2.00, C++/H only) and `src64/` (GTA SA 2.10, C++/H + GLSL, shaders in `glsl64/`). `build.sh` / `jni/Android.mk` build each `.so` from its own tree.
+* 64-bit: every shader is a `.glsl` file in `files/ProperGFX/shaders/{vertex,fragment}/` (written on first launch, built-in fallback per file, `#pragma include`, Reload shaders, Hot reload, Restore defaults, per-file status + driver error in the menu).
+* 64-bit: SAShaderL-compatible uniforms (ShaderFlags, SunVector, Time, GameTimeSeconds, UnderWaterness, RoadsWetness, FarClipDist, EntityModel) + PGFX_TimeSec / PGFX_Sun / PGFX_User0-1; also pushed into game shaders that declare them. New hooks: `RwCameraSetFarClipPlane`, `CEntity::Render` (both optional).
+* 64-bit new: `shadows.glsl` receiver with `[DynamicShadows] Tint/TintR/TintG/TintB`; `[SunVector] Enabled/Glow/GlowSize/GoldenHour`; `[DepthOfField] Mode/Bokeh/Radius/UnderwaterBlur`; `[GLSL] HotReload/CustomPass/Param0-7` + `custom.glsl` last pass.
+* 64-bit: floating button opacity range 0-1; label, fill and outline all scale with it (0 = invisible). 32-bit unchanged (min 0.05).
+* Both: folder `files/ProperShader` -> `files/ProperGFX`, `settings.ini` -> `TYFMC.ProperGFX.ini` (automatic migration, merge if both exist); logcat tag `ProperGFX`.
+* Both: LUT rewrite (stb_image PNG/BMP/TGA/JPG, any N^3 strip or atlas, orientation auto-detect, case-insensitive names, `luts/` subfolder, live reload, `[LUT]` section with Amount default 1.0, menu picker + status). Legacy `[ColorGrading] LUT` is read once.
+* Both: SAUtils menu entries (open menu, floating button on/off).
+* Tools: `glsl_validate.py` (glslang, 259 shader checks), `host_lut_test.cpp`, `glsl2h.py`.
+
 ## 1.3.2
 * Fix: game crash (SIGILL in `RQ_Command_rqBuildShader`) when the GPU driver (seen: Mali, realme, Android 16) rejects a patched shader. Patched pairs are test-compiled on the real driver first (hook on `ES2Shader::Build`) and step down: simplified shadow patch -> no shadow patch -> original shader. Unknown pairs carrying our shadow text (another mod rewrote the strings) are stripped.
 * `files/ProperShader/propergfx_log.txt`: driver error text + full patched sources of the first failures, GL renderer/version.

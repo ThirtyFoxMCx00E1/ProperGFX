@@ -7,9 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
-#include "../src/ps_fx.h"
-#include "../src/ps_glstate.h"
-#include "../src/ps_ui.h"
+#include "../src64/ps_fx.h"
+#include "../src64/ps_glstate.h"
+#include "../src64/ps_ui.h"
 void UI_TestOpen(bool o, int tab);
 int main(int argc, char** argv)
 {

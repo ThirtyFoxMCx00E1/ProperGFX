@@ -4,8 +4,8 @@
 #include <GLES2/gl2.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../src/ps_fx.h"
-#include "../src/ps_glstate.h"
+#include "../src64/ps_fx.h"
+#include "../src64/ps_glstate.h"
 static int fails = 0;
 #define CHECK(c, msg) do { bool ok_ = (c); printf("%s  %s\n", ok_ ? "PASS" : "FAIL", msg); if (!ok_) ++fails; } while (0)
 int main()

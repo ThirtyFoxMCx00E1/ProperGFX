@@ -3,7 +3,7 @@
 #include <GLES2/gl2.h>
 #include <stdio.h>
 #include <string>
-#include "../src/ps_world.h"
+#include "../src64/ps_world.h"
 static bool compile(const std::string& src, const char* tag)
 {
     GLuint s = glCreateShader(GL_FRAGMENT_SHADER); const char* p = src.c_str();
