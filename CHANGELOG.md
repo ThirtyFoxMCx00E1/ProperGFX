@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.4.4 (hotfix)
+* 64-bit: crash at game start (SIGSEGV in the linker, `soinfo::find_symbol_by_name` <- `dlsym` <- `OnModLoad`, seen on realme / Android 16). 1.4.3's render-queue setup passed AML's `GetLibHandle` value to `dlsym`, but that value is not a `dlopen` handle. The symbols are now resolved with `aml->GetSym` like every other game symbol.
+
 ## 1.4.3
 * 64-bit: deferred (screen-space) sun shadows, the technique of libZyZyGFX64. Readable scene depth (depth renderbuffer -> depth texture after rqTargetSelect), our commands in the game's RenderQueue before/after RenderScene (rqDebugMarker slot), 2 shadow cascades (D16 compare), `shadow_depth.glsl`, `shadow_screen.glsl`, `shadow_mask.glsl`, `shadow_apply.glsl` (GLSL ES 3.00). The game's shaders are no longer patched for shadows.
 * 64-bit: `[DynamicShadows] Method` (Deferred / InShader) and `HalfResMask`; menu status for the render queue and the scene target. GL state save/restore also covers depth func, cull mode, front face, clear depth.

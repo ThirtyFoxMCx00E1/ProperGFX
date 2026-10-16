@@ -1,6 +1,5 @@
 #include "ps_scene.h"
 #include "ps_log.h"
-#include <dlfcn.h>
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
@@ -218,14 +217,14 @@ void Upgrade(GLint fb)
 
 } // namespace
 
-bool Scene_Init(void* h)
+bool Scene_Init(PSSymLookupFn h)
 {
     if (!h) return false;
-    g_rqVar        = (void**)dlsym(h, "renderQueue");
-    g_mutexObtain  = (void (*)(void*))dlsym(h, "_Z14OS_MutexObtainPv");
-    g_mutexRelease = (void (*)(void*))dlsym(h, "_Z15OS_MutexReleasePv");
-    g_dbgMarker    = dlsym(h, "_Z24RQ_Command_rqDebugMarkerRPc");
-    g_process      = (void (*)(void*))dlsym(h, "_ZN11RenderQueue7ProcessEv");
+    g_rqVar        = (void**)h("renderQueue");
+    g_mutexObtain  = (void (*)(void*))h("_Z14OS_MutexObtainPv");
+    g_mutexRelease = (void (*)(void*))h("_Z15OS_MutexReleasePv");
+    g_dbgMarker    = h("_Z24RQ_Command_rqDebugMarkerRPc");
+    g_process      = (void (*)(void*))h("_ZN11RenderQueue7ProcessEv");
     S.rqSymbols = g_rqVar && g_mutexObtain && g_mutexRelease && g_dbgMarker && g_process;
     if (!S.rqSymbols) Note("render-queue symbols missing (renderQueue %d, mutex %d/%d, rqDebugMarker %d, Process %d) - deferred shadows off",
                            g_rqVar != nullptr, g_mutexObtain != nullptr, g_mutexRelease != nullptr, g_dbgMarker != nullptr, g_process != nullptr);

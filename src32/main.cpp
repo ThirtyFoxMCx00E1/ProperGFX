@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.3, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
+// Proper GFX Mobile (v1.4.4, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
 // Everything is hooked by exported symbol name, so one source tree serves both builds.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -30,7 +30,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.3, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.4, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)

@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.3, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Proper GFX Mobile (v1.4.4, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -32,7 +32,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.3, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.4, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -451,7 +451,8 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     if (aml->GetSym(hGame, "_Z23RwCameraSetFarClipPlaneP8RwCameraf")) HOOKSYM(RwCameraSetFarClipPlane, hGame, "_Z23RwCameraSetFarClipPlaneP8RwCameraf");
     if (aml->GetSym(hGame, "_ZN7CEntity6RenderEv")) HOOKSYM(CEntity_Render, hGame, "_ZN7CEntity6RenderEv");
     Scene_SetHandler(OnSceneEvent);
-    if (Scene_Init(hGame))
+    static void* s_hGame; s_hGame = hGame;
+    if (Scene_Init([](const char* n) -> void* { return (void*)aml->GetSym(s_hGame, n); }))
     {
         if (aml->GetSym(hGame, "_Z11RenderSceneb"))                 HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb");
         if (aml->GetSym(hGame, "_Z25RQ_Command_rqTargetSelectRPc")) HOOKSYM(RQ_Command_rqTargetSelect, hGame, "_Z25RQ_Command_rqTargetSelectRPc");

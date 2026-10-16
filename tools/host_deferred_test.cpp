@@ -291,8 +291,8 @@ int main()
     // ---- render queue: our command goes through the game's own command table, between the game's commands
     {
         MockQueueInit(false);
-        void* self = dlopen(nullptr, RTLD_NOW);
-        CHECK(Scene_Init(self), "render-queue symbols resolve (renderQueue, OS_Mutex*, rqDebugMarker, RenderQueue::Process)");
+        static void* self; self = dlopen(nullptr, RTLD_NOW);
+        CHECK(Scene_Init([](const char* n) -> void* { return dlsym(self, n); }), "render-queue symbols resolve (renderQueue, OS_Mutex*, rqDebugMarker, RenderQueue::Process)");
         int seen[3] = {0, 0, 0}; static int* sp; sp = seen;
         Scene_SetHandler([](int ev) { if (ev >= 0 && ev < 3) ++sp[ev]; });
         Scene_SetWanted(true);

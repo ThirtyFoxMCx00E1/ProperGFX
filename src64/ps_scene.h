@@ -29,7 +29,10 @@ struct PSSceneStats
     char  note[160] = "";
 };
 
-bool  Scene_Init(void* hGame);                  // game thread at load: resolves renderQueue, OS_Mutex*, rqDebugMarker, RenderQueue::Process
+// game thread at load: resolves renderQueue, OS_Mutex*, rqDebugMarker, RenderQueue::Process through `lookup`
+// (1.4.3 hotfix: must be AML's GetSym - the handle from aml->GetLibHandle is NOT a dlopen handle, dlsym on it crashed in the linker)
+typedef void* (*PSSymLookupFn)(const char* name);
+bool  Scene_Init(PSSymLookupFn lookup);
 void  Scene_SetHandler(PSSceneEventFn fn);      // called on the render thread for every event
 void  Scene_SetWanted(bool on);                 // depth upgrade + events only while deferred shadows are on
 bool  Scene_Wanted();

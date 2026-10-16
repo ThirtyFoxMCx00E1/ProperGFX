@@ -1,4 +1,4 @@
-# Proper GFX Mobile 1.4.3 (AML mod for GTA San Andreas Android)
+# Proper GFX Mobile 1.4.4 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
@@ -14,6 +14,9 @@ Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 3. Start the game. Everything lives in `files/ProperGFX/`; settings are `files/ProperGFX/TYFMC.ProperGFX.ini`.
 
 Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
+
+## 1.4.4 hotfix
+* Fixes the crash at game start in 1.4.3 (64-bit): the new render-queue code looked up game symbols with `dlsym` on AML's library handle, which the Android linker rejects. It now uses AML's `GetSym`.
 
 ## What's new in 1.4.3 - deferred shadows (64-bit), the libZyZyGFX64 way
 1.4.2 fixed the shader compile error, but shadows still did not cast in game: the receiver code depended on being patched into every one of the game's world shaders, and on 2.10 too many of them never got it. 1.4.3 switches the 64-bit build to the technique used by **libZyZyGFX64** ([GLSL-Samples-source-mod](https://github.com/ThirtyFoxMCx00E1/GLSL-Samples-source-mod)). The game's shaders are no longer touched:
