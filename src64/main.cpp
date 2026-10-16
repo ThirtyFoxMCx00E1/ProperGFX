@@ -1,5 +1,5 @@
-// Proper GFX Mobile (v1.4.1, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
-// Every shader is a .glsl file of the source tree (glsl64/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
+// Proper GFX Mobile (v1.4.2, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Every shader is a .glsl file of the source tree (Shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
 #include <EGL/egl.h>
@@ -31,7 +31,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.1, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.2, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -150,10 +150,10 @@ static void OnFrame()
 
     if (!g_initDone)
     {
-        LUT_Load(g_dir, g_cfg.lutFile);
+        { char ld[700]; PS_LutDir(g_cfg, g_dir, ld, sizeof(ld)); LUT_Load(ld, g_cfg.lutFile); }
         g_initDone = true;
     }
-    LUT_Poll(g_dir, g_cfg.lutFile, dt);     // 1.4: a LUT that is replaced / renamed / dropped in (or picked in the menu) is reloaded live
+    { char ld[700]; PS_LutDir(g_cfg, g_dir, ld, sizeof(ld)); LUT_Poll(ld, g_cfg.lutFile, dt); }     // 1.4: a LUT that is replaced / renamed / dropped in (or picked in the menu) is reloaded live
 
 
     PSGLState gs; gs.Save();

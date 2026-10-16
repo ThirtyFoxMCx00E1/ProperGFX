@@ -172,7 +172,10 @@ bool LUT_Load(const char* dir, const char* name)
 void LUT_Poll(const char* dir, const char* name, float dt)
 {
     g_poll += dt;
-    const bool nameChanged = strcmp(g_name, name ? name : "") != 0;
+    static char lastDir[700] = "";
+    const bool dirChanged = strcmp(lastDir, dir ? dir : "") != 0;          // [LUT] Folders changed
+    if (dirChanged) snprintf(lastDir, sizeof(lastDir), "%s", dir ? dir : "");
+    const bool nameChanged = strcmp(g_name, name ? name : "") != 0 || dirChanged;
     if (!g_reload && !nameChanged && g_poll < 1.0f) return;
     g_poll = 0.f;
     if (g_reload || nameChanged) { g_reload = false; LUT_Load(dir, name); return; }

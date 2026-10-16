@@ -43,7 +43,7 @@ static const Field kFields[] = {
     D("ColorGrading", "Contrast", contrast) D("ColorGrading", "Saturation", saturation) F("ColorGrading", "Vibrance", vibrance)
     F("ColorGrading", "Temperature", temperature) F("ColorGrading", "Tint", tint) F("ColorGrading", "Gamma", gamma)
     F("ColorGrading", "Lift", lift) F("ColorGrading", "Gain", gain) L("ColorGrading", "LUT", lutAmount)
-    B("LUT", "Enabled", lutOn) F("LUT", "Amount", lutAmount) S("LUT", "File", lutFile)
+    B("LUT", "Enabled", lutOn) F("LUT", "Amount", lutAmount) S("LUT", "Folders", lutFolder) S("LUT", "File", lutFile)
     B("Dithering", "Enabled", dither)
     B("Vignette", "Enabled", vignette) D("Vignette", "Strength", vignetteStrength) F("Vignette", "Size", vignetteSize)
     B("FilmGrain", "Enabled", grain) F("FilmGrain", "Strength", grainStrength)
@@ -190,7 +190,7 @@ void PS_ResetSettings(PSSettings& s)
 {
     PSSettings d;   // keep the button / menu placement
     d.showButton = s.showButton; d.buttonX = s.buttonX; d.buttonY = s.buttonY; d.buttonScale = s.buttonScale;
-    d.buttonOpacity = s.buttonOpacity; d.uiScale = s.uiScale; memcpy(d.lutFile, s.lutFile, sizeof(d.lutFile));
+    d.buttonOpacity = s.buttonOpacity; d.uiScale = s.uiScale; memcpy(d.lutFile, s.lutFile, sizeof(d.lutFile)); memcpy(d.lutFolder, s.lutFolder, sizeof(d.lutFolder));
     d.glslCustom = s.glslCustom; memcpy(d.glslParam, s.glslParam, sizeof(d.glslParam)); d.worldPatch = s.worldPatch; d.celWorld = s.celWorld;
     s = d; ++g_worldGen;
 }
@@ -260,4 +260,14 @@ void PS_UpdateLive(PSSettings& s, float nf)
     if (s.timeOfDay == 1) nf = 0.f; else if (s.timeOfDay == 2) nf = 1.f;
     DN* all[] = { &s.hdrAmount, &s.exposure, &s.bloomIntensity, &s.contrast, &s.saturation, &s.vignetteStrength, &s.fogDensity };
     for (DN* d : all) d->v = d->day + (d->night - d->day) * nf;
+}
+
+void PS_LutDir(const PSSettings& s, const char* base, char* out, int n)
+{
+    const char* f = s.lutFolder;
+    while (*f == ' ' || *f == '\t') ++f;
+    if (!*f || !strcmp(f, ".")) snprintf(out, n, "%s", base);
+    else if (f[0] == '/') snprintf(out, n, "%s", f);
+    else snprintf(out, n, "%s/%s", base, f);
+    int l = (int)strlen(out); while (l > 1 && out[l - 1] == '/') out[--l] = 0;
 }

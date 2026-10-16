@@ -118,10 +118,12 @@ bool World_PatchPixelSource(unsigned flags, const char* src, std::string& out, b
     bool any = false;
     const bool world = (flags & PS_FLAG_FOG) != 0;
 
+    // The game writes its shaders on ONE line ("...fcolor *= Out_Color;fcolor.xyz = mix(...)"): the receiver block starts with #ifdef, and a
+    // preprocessor directive must start a line - Mali rejects "...;#ifdef" (P0001 "#endif directive found outside if-section"). Hence the "\n".
     // 1) horizon fog: density + softness. Smoothstep blend instead of pow() -> a few MADs, no transcendental
     bool shadowIn = false;
     if (world && Replace(out, "fcolor.xyz = mix(fcolor.xyz, FogColor, Out_FogAmt);",
-                         std::string(withShadow ? kShadowBlock : "") + "mediump float ps_f = Out_FogAmt; ps_f += (ps_f * ps_f * (3.0 - 2.0 * ps_f) - ps_f) * PS_A.y;\n"
+                         (withShadow ? std::string("\n") + kShadowBlock : std::string()) + "mediump float ps_f = Out_FogAmt; ps_f += (ps_f * ps_f * (3.0 - 2.0 * ps_f) - ps_f) * PS_A.y;\n"
                          "fcolor.xyz = mix(fcolor.xyz, FogColor, clamp(ps_f * (1.0 + PS_A.x), 0.0, 1.0));")) { any = true; shadowIn = withShadow; }
     // 2) specular strength
     if (Replace(out, "fcolor.xyz += Out_Spec;", "fcolor.xyz += Out_Spec * (1.0 + PS_A.z);")) any = true;

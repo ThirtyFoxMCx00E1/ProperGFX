@@ -10,8 +10,8 @@ TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/dist"; mkdir -p "$OUT"
 IMG="$HERE/third_party/imgui"
-# 64-bit: the .glsl files are also embedded (fallback + "write default shaders") - regenerate the header from glsl64/
-[ -d "$HERE/glsl64" ] && python3 "$HERE/tools/glsl2h.py" "$HERE/glsl64" "$HERE/src64/ps_glsl_embedded.h"
+# 64-bit: every .glsl in Shaders/{fragment,vertex} is compiled INTO libProperGFX64.so (Shaders/ -> src64/ps_glsl_embedded.h)
+python3 "$HERE/tools/glsl2h.py" "$HERE/Shaders" "$HERE/src64/ps_glsl_embedded.h"
 COMMONSRC="$HERE/third_party/aml/mod/logger.cpp $HERE/third_party/aml/mod/config.cpp \
  $IMG/imgui.cpp $IMG/imgui_draw.cpp $IMG/imgui_tables.cpp $IMG/imgui_widgets.cpp $IMG/imgui_impl_opengl3.cpp"
 FLAGS="-std=c++17 -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -fno-rtti -ffunction-sections -fdata-sections \

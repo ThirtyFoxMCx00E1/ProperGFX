@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# Host check of glsl64/: resolves "#pragma include" like ps_glsl.cpp and compiles every pass + many final.glsl variants
+# Host check of Shaders/: resolves "#pragma include" like ps_glsl.cpp and compiles every pass + many final.glsl variants
 # as GLSL ES 1.00 with Khronos glslangValidator.  usage: tools/glsl_validate.py /path/to/glslangValidator
 import os, sys, subprocess, itertools, random
-GV = sys.argv[1]; ROOT = os.path.join(os.path.dirname(__file__), '..', 'glsl64'); TMP = '/tmp/gt'
+GV = sys.argv[1]; ROOT = os.path.join(os.path.dirname(__file__), '..', 'Shaders'); TMP = '/tmp/gt'
 os.makedirs(TMP, exist_ok=True)
 def expand(rel, seen):
     if rel in seen: return ''

@@ -1,5 +1,5 @@
 // Proper GFX Mobile 1.4 (64-bit) - shared header of every post-process fragment shader.
-// All .glsl files of glsl64/ are compiled INTO libProperGFX64.so by build.sh (tools/glsl2h.py) - edit them here and rebuild.
+// All .glsl files of Shaders/ are compiled INTO libProperGFX64.so by build.sh (tools/glsl2h.py) - edit them here and rebuild.
 // A shader that does not compile on a GPU is reported in the menu + propergfx_log.txt and that effect is skipped (the game keeps running).
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 #define HP highp

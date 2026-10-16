@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.4.1"
+#define PS_VERSION     "1.4.2"
 #define PS_DIR_NAME    "ProperGFX"              // files/ProperGFX (1.3 and older: files/ProperShader, moved automatically)
 #define PS_INI_NAME    "TYFMC.ProperGFX.ini"    // 1.3 and older: settings.ini (renamed automatically)
 #define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)
@@ -65,6 +65,7 @@ struct PSSettings
     // ---- [LUT] colour lookup texture: files/ProperGFX/<LUTFile> (png / bmp / tga / jpg; 256x16, 1024x32, 4096x64, 64x64, 512x512) ----
     bool  lutOn        = true;
     float lutAmount    = 1.0f;       // 1.4: default 1 (was 0, so a dropped-in LUT seemed to do nothing)
+    char  lutFolder[128] = "";       // [LUT] Folders = directory of the LUT: empty = files/ProperGFX (+ /luts); relative to files/ProperGFX, or an absolute path
     char  lutFile[64]  = "auto";     // "auto" = the first lut.png / lut.bmp / lut.tga / lut.jpg (any case) in files/ProperGFX or files/ProperGFX/luts
     // ---- [Dithering] / [Vignette] / [FilmGrain] / [ChromaticAberration] ----
     bool  dither       = true;
@@ -146,6 +147,8 @@ extern const char* const PS_GradeNames[];   extern const int PS_GradeCount;
 extern const char* const PS_TonemapNames[]; extern const int PS_TonemapCount;
 extern const char* const PS_TimeNames[];    extern const int PS_TimeCount;
 extern const char* const PS_SunSourceNames[]; extern const int PS_SunSourceCount;
+// [LUT] Folders -> the directory LUT_Load searches (base = files/ProperGFX)
+void PS_LutDir(const PSSettings& s, const char* base, char* out, int n);
 extern const char* const PS_DofModeNames[];   extern const int PS_DofModeCount;
 
 bool  PS_LoadSettings(PSSettings& s, const char* path);

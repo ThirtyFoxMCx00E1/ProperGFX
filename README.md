@@ -1,9 +1,9 @@
-# Proper GFX Mobile 1.4.1 (AML mod for GTA San Andreas Android)
+# Proper GFX Mobile 1.4.2 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
 | 32-bit | GTA SA **2.00** | armeabi-v7a | `libProperGFX32.so` | `src32/` | C++/H only (AML + SAUtils), built into the `.so` |
-| 64-bit | GTA SA **2.10** | arm64-v8a | `libProperGFX64.so` | `src64/` + `glsl64/{fragment,vertex}` | C++/H + **GLSL**, compiled into the `.so` |
+| 64-bit | GTA SA **2.10** | arm64-v8a | `libProperGFX64.so` | `src64/` + `Shaders/{fragment,vertex}` | C++/H + **GLSL**, compiled into the `.so` |
 
 For **AML 1.4.0** with **FLA 7.5** (no address patches, everything is hooked by exported symbol name). Uses [SAUtils](https://github.com/ThirtyFoxMCx00E1/SAUtils) when installed (optional).
 Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
@@ -15,8 +15,15 @@ Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 
 Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
 
+## What's new in 1.4.2 - shadows fixed on Mali (thanks for the log)
+* **Why shadows were off:** the game writes its object shaders on ONE line (`...fcolor *= Out_Color;fcolor.xyz = mix(...)`). The shadow receiver was pasted right after a `;`, so its `#ifdef GL_FRAGMENT_PRECISION_HIGH` was not at the start of a line. Mali (and the GLSL ES spec) rejects that - `P0001: #endif directive found outside if-section` - so the self-test refused every receiver and switched shadows off for the session. Mesa accepted it, which is why the earlier PC tests passed. The block now starts on its own line (both builds; 1.3.x had the same bug).
+* New regression test `tools/patch_check.sh`: patches the exact one-line shaders from the Mali log with the real patcher (32 and 64) and validates them with Khronos glslang (strict, fails the old code).
+* Shader folder in the repo renamed `glsl64/` -> **`Shaders/`** (`Shaders/fragment`, `Shaders/vertex`), still compiled into `libProperGFX64.so`.
+* 64-bit menu FEATURE GUIDE rewritten with the Proper Shaders descriptions (FSR, Bloom, TAA & FXAA, Auto Exposure, AO, Shadows, SSR, Volumetric Headlights, Contact Shadows, LUT, Surface Based Reflections, HDR, Foliage Backlights, PBR Reflections) + what this build does for each.
+* 64-bit: `[LUT] Folders =` (directory of the LUT; empty = files/ProperGFX + luts, relative to files/ProperGFX or a full path) next to `File =` (name with extension).
+
 ## What's new in 1.4.1
-* **64-bit: all `.glsl` shaders are inside `libProperGFX64.so`.** They live in the source tree (`glsl64/fragment`, `glsl64/vertex`, like SAShaderL's `GTASA/files/shaders` layout) and `build.sh` compiles them into the binary. Nothing is read from or written to the phone's files folder any more; the `files/ProperGFX/shaders` folder 1.4.0 created is removed automatically. (1.4.0 loaded the copies from that folder.)
+* **64-bit: all `.glsl` shaders are inside `libProperGFX64.so`.** They live in the source tree (`Shaders/fragment`, `Shaders/vertex`, like SAShaderL's `GTASA/files/shaders` layout) and `build.sh` compiles them into the binary. Nothing is read from or written to the phone's files folder any more; the `files/ProperGFX/shaders` folder 1.4.0 created is removed automatically. (1.4.0 loaded the copies from that folder.)
 * **Floating button (64-bit):** Opacity below 0.06 is treated as 0 and nothing is drawn - an old `Opacity = 0.05` from the 32-bit range (which still drew a faint label) now becomes 0, and the slider snaps to "0 (hidden)".
 * **Log fix (both):** shader / driver errors from every part of the mod now reach `files/ProperGFX/propergfx_log.txt` (before, only messages from main.cpp did).
 * Verified on a PC GLES2 driver (Mesa): the full 64-bit post-process chain with every effect on, and the shadow tests (casting, receiving, unlit buildings/roads, time of day) with the built-in `shadows.glsl`.
@@ -31,15 +38,15 @@ Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/Pr
 * **LUT fixed** (both builds). Why it did nothing before: the file name was case-sensitive (`Lut.bmp` was not found), only plain 24-bit BMP and uncompressed TGA loaded (BMP with BITFIELDS / 32-bit / top-down and RLE TGA failed silently), the LUT amount defaulted to 0 and a changed file was never re-read. Now: PNG / BMP / TGA / JPG (stb_image), any size 16^3 / 32^3 / 64^3 as strip or square atlas, upside-down LUTs auto-detected, case-insensitive lookup in `files/ProperGFX/` and `files/ProperGFX/luts/`, `[LUT] Enabled / Amount (1.0) / File (auto = lut.*)`, live reload when the file changes, a LUT picker and status line in the menu. Example LUTs: `luts/warm_sunset.bmp`, `luts/sepia.png`, `luts/cinematic.tga`.
 * **SAUtils** (both builds): *Mods > Proper GFX - open menu* and *Proper GFX - floating button On/Off*.
 
-## The 64-bit shaders (glsl64/)
-* Edit `glsl64/fragment/*.glsl` / `glsl64/vertex/*.glsl` in the source, then run `./build.sh` - `tools/glsl2h.py` embeds them into `src64/ps_glsl_embedded.h` and they are compiled into `libProperGFX64.so`.
+## The 64-bit shaders (Shaders/)
+* Edit `Shaders/fragment/*.glsl` / `Shaders/vertex/*.glsl` in the source, then run `./build.sh` - `tools/glsl2h.py` embeds them into `src64/ps_glsl_embedded.h` and they are compiled into `libProperGFX64.so`.
 * `fragment/common.glsl` is included by every post-process pass (`#pragma include "common.glsl"`, each file at most once).
 * `fragment/final.glsl` is compiled once per set of enabled features (`#define FX_BLOOM 1`, ..., `#define TM_MODE n` in front), so a disabled effect costs nothing.
 * `fragment/shadows.glsl` / `vertex/shadows.glsl` are injected into the game's own object shaders (sections `//@@decl`, `//@@apply`, `//@@assign`, `//@@nl`) and test-compiled on the driver first.
 * `tools/glsl_validate.py <glslangValidator>` checks every pass and 160 `final.glsl` variants as GLSL ES 1.00.
 
 ## Build
-`./build.sh /path/to/android-ndk` (r24+) -> `dist/libProperGFX32.so` + `dist/libProperGFX64.so`. It regenerates `src64/ps_glsl_embedded.h` from `glsl64/` first.
+`./build.sh /path/to/android-ndk` (r24+) -> `dist/libProperGFX32.so` + `dist/libProperGFX64.so`. It regenerates `src64/ps_glsl_embedded.h` from `Shaders/` first.
 
 ## Quality tiers (menu > PRESET)
 | Tier | For | Shadows | Bloom | Sun rays | Other |

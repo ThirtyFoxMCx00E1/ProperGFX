@@ -336,7 +336,7 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         SliderF("Amount", &s.lutAmount, 0.f, 1.f);
         {   // file picker: every image in files/ProperGFX and files/ProperGFX/luts
             static std::vector<std::string> files; static float scan = 99.f; scan += ImGui::GetIO().DeltaTime;
-            if (scan > 2.f && st.dir && st.dir[0]) { LUT_ListFiles(st.dir, files); scan = 0.f; }
+            if (scan > 2.f && st.dir && st.dir[0]) { char ld[700]; PS_LutDir(s, st.dir, ld, sizeof(ld)); LUT_ListFiles(ld, files); scan = 0.f; }
             const bool isAuto = !strcasecmp(s.lutFile, "auto") || !strcasecmp(s.lutFile, "lut") || !s.lutFile[0];
             if (ImGui::BeginCombo("File", isAuto ? "auto (lut.png / .bmp / .tga / .jpg)" : s.lutFile))
             {
@@ -350,7 +350,8 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         const PSLutInfo& li = LUT_Info();
         if (li.loaded) ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.5f, 1), "Loaded: %s  %dx%d  (%d^3%s)", li.file, li.w, li.h, li.n, li.flipped ? ", green bottom-up -> turned" : "");
         else ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1), "Not loaded: %s - %s", li.file[0] ? li.file : "lut", li.error[0] ? li.error : "no file");
-        Note("Put lut.png / lut.bmp / lut.tga / lut.jpg (or any image picked above) in files/" PS_DIR_NAME " or files/" PS_DIR_NAME "/luts. Sizes: 256x16, 1024x32, 4096x64 strips, 64x64 or 512x512 squares. Changes are picked up live.");
+        { char ld[700]; PS_LutDir(s, st.dir ? st.dir : "", ld, sizeof(ld)); ImGui::TextDisabled("Folder: %s", ld); }
+        Note("Put your LUT (.png / .bmp / .tga / .jpg) in the folder set by [LUT] Folders = in TYFMC.ProperGFX.ini (empty = files/" PS_DIR_NAME " and its luts subfolder; a name is relative to files/" PS_DIR_NAME ", or give a full path) and pick it above or write its name with the extension in File = . Sizes: 256x16, 1024x32, 4096x64 strips, 64x64 or 512x512 squares. Changes are picked up live.");
         FeatureEnd();
     }
     if (FeatureBegin("Dithering - banding fix", &s.dither)) { Note("Triangular dither in the final pass (dark gradients, sky)."); FeatureEnd(); }
@@ -474,7 +475,7 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         else ImGui::TextDisabled("All %d built-in .glsl shaders OK", (int)GLSL_Files().size());
         for (const PSGlslFile& f : GLSL_Files())
             if (f.failed) { ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s  FAILED", f.path.c_str()); if (!f.error.empty()) ImGui::TextWrapped("   %s", f.error.c_str()); }
-        Note("The .glsl shaders (glsl64/fragment + glsl64/vertex in the source) are compiled into the .so - nothing is read from the files folder. "
+        Note("The .glsl shaders (Shaders/fragment + Shaders/vertex in the source) are compiled into the .so - nothing is read from the files folder. "
              "Uniforms (same as SAShaderL): ShaderFlags, SunVector, Time, GameTimeSeconds, UnderWaterness, RoadsWetness, FarClipDist, EntityModel.");
     }
     if (ImGui::CollapsingHeader("Menu & floating button"))

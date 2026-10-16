@@ -1,5 +1,5 @@
 // Proper GFX Mobile 1.4.1 (64-bit) - GLSL shaders BUILT INTO libProperGFX64.so.
-// The shader sources are the .glsl files of the source tree (glsl64/fragment, glsl64/vertex - same layout as SAShaderL's GTASA/files/shaders);
+// The shader sources are the .glsl files of the source tree (Shaders/fragment, Shaders/vertex - same layout as SAShaderL's GTASA/files/shaders);
 // tools/glsl2h.py embeds them into ps_glsl_embedded.h at build time. Nothing is read from or written to the phone's files folder.
 // "#pragma include "name.glsl"" pastes another file of the same stage folder (each file at most once per shader).
 #pragma once

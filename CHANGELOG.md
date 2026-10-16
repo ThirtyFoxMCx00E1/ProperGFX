@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.2
+* Fix (both builds): shadow receiver `#ifdef` was inserted mid-line into the game's one-line shaders -> Mali rejected every receiver (P0001 "#endif directive found outside if-section") and shadows were disabled for the session. The block now starts on a new line.
+* `tools/host_patch_test.cpp` + `tools/patch_check.sh`: exact game shaders from the Mali-G57 log, patched and validated with glslang.
+* Repo: `glsl64/` renamed to `Shaders/`.
+* 64-bit: FEATURE GUIDE text (14 entries); `[LUT] Folders`.
+
 ## 1.4.1
 * 64-bit: the `.glsl` shaders (glsl64/fragment, glsl64/vertex) are compiled INTO `libProperGFX64.so`; no reading/writing of `files/ProperGFX/shaders` (the folder written by 1.4.0 is removed at start). Removed Hot reload / Reload shaders / Restore defaults; the menu lists shaders that fail to compile on the GPU.
 * 64-bit: button Opacity < 0.06 = 0 = nothing drawn (old 0.05 values included); slider snaps to "0 (hidden)".

@@ -88,7 +88,7 @@ bool EnsureProgram()
     glGetShaderPrecisionFormat(GL_FRAGMENT_SHADER, GL_HIGH_FLOAT, range, &prec);
     if (prec == 0) { G.noHighp = true; Note("GPU has no highp in fragment shaders - shadows disabled"); return false; }
     GLuint v = 0, f = 0;
-    // glsl64/{vertex,fragment}/shadow_caster.glsl (built into the .so)
+    // Shaders/{vertex,fragment}/shadow_caster.glsl (built into the .so)
     std::string vs, fs;
     if (!GLSL_Source("vertex/shadow_caster.glsl", vs) || !GLSL_Source("fragment/shadow_caster.glsl", fs)) { vs = kRVS; fs = kRFS; }
     if (!Compile(v, GL_VERTEX_SHADER, vs.c_str()) || !Compile(f, GL_FRAGMENT_SHADER, fs.c_str()))
