@@ -239,7 +239,7 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         Check("Crash guard (safe mode after a failed launch)", &s.shadowGuard);
         SliderF("Shadow tint amount", &s.shadowTint, 0.f, 1.f);
         SliderF("Tint red", &s.shadowTintR, 0.f, 1.f); SliderF("Tint green", &s.shadowTintG, 0.f, 1.f); SliderF("Tint blue", &s.shadowTintB, 0.f, 1.f);
-        Note("Shadow code = files/" PS_DIR_NAME "/shaders/fragment/shadows.glsl + vertex/shadows.glsl (restart the game after editing those two).");
+        Note("Shadow code = shadows.glsl (fragment + vertex), built into libProperGFX64.so.");
         Note("Sun source Auto = the game's time-cycle sun vector (follows the game clock). Strength can follow the Shdw column of timecyc.dat.");
         Note("Buildings, roads, terrain and vehicles cast and receive shadows; pedestrians do not.");
         if (s.shadows && st.shadowReceivers == 0 && st.patchedShaders >= 10)
@@ -463,26 +463,19 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
             ImGui::Text("Full-res texture fetches/pixel: ~%.0f", st.fx->fullResFetches);
         }
     }
-    if (ImGui::CollapsingHeader("GLSL SHADERS (files/" PS_DIR_NAME "/shaders)"))
+    if (ImGui::CollapsingHeader("GLSL SHADERS (built into libProperGFX64.so)"))
     {
-        Check("Hot reload (re-read changed .glsl files every 1.5 s)", &s.glslHotReload);
-        if (ImGui::Button("Reload shaders")) GLSL_RequestReload();
-        ImGui::SameLine();
-        if (ImGui::Button("Restore default .glsl files")) { int n = GLSL_WriteDefaults(true); PS_Log("GLSL: restored %d default files", n); GLSL_RequestReload(); }
-        Check("Custom pass (fragment/custom.glsl, runs last)", &s.glslCustom);
-        static const char* pn[8] = { "Param 1 (PGFX_User0.x)", "Param 2 (PGFX_User0.y)", "Param 3 (PGFX_User0.z)", "Param 4 (PGFX_User0.w)",
+        Check("Custom pass (custom.glsl: rain & night mood, runs last)", &s.glslCustom);
+        static const char* pn[8] = { "Wet-road blue tint", "Night darkening", "Contrast", "Warm / cold",
                                      "Param 5 (PGFX_User1.x)", "Param 6 (PGFX_User1.y)", "Param 7 (PGFX_User1.z)", "Param 8 (PGFX_User1.w)" };
         for (int i = 0; i < 8; ++i) SliderF(pn[i], &s.glslParam[i], -1.f, 1.f);
-        if (st.fx && st.fx->glslErrors) ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.35f, 1), "%d .glsl file(s) failed on this GPU - the built-in copy is used (see below / propergfx_log.txt)", st.fx->glslErrors);
+        int bad = 0; for (const PSGlslFile& f : GLSL_Files()) if (f.failed) ++bad;
+        if (bad) ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.35f, 1), "%d shader(s) failed to compile on this GPU - details in files/" PS_DIR_NAME "/propergfx_log.txt", bad);
+        else ImGui::TextDisabled("All %d built-in .glsl shaders OK", (int)GLSL_Files().size());
         for (const PSGlslFile& f : GLSL_Files())
-        {
-            if (f.failed) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s  ERROR -> built-in", f.path.c_str());
-            else if (f.onDisk) ImGui::Text("%s  file", f.path.c_str());
-            else ImGui::TextDisabled("%s  built-in (no file)", f.path.c_str());
-            if (f.failed && !f.error.empty()) ImGui::TextWrapped("   %s", f.error.c_str());
-        }
-        Note("Uniforms for your .glsl (same as SAShaderL): ShaderFlags, SunVector, Time, GameTimeSeconds, UnderWaterness, RoadsWetness, FarClipDist, EntityModel + PGFX_TimeSec, PGFX_Sun, PGFX_User0/1. "
-             "Post-process files reload live; shadows.glsl is compiled into the game's shaders, so it needs a game restart.");
+            if (f.failed) { ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s  FAILED", f.path.c_str()); if (!f.error.empty()) ImGui::TextWrapped("   %s", f.error.c_str()); }
+        Note("The .glsl shaders (glsl64/fragment + glsl64/vertex in the source) are compiled into the .so - nothing is read from the files folder. "
+             "Uniforms (same as SAShaderL): ShaderFlags, SunVector, Time, GameTimeSeconds, UnderWaterness, RoadsWetness, FarClipDist, EntityModel.");
     }
     if (ImGui::CollapsingHeader("Menu & floating button"))
     {
@@ -492,7 +485,8 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         if (ImGui::SliderFloat("X position", &px, 0.f, 100.f, "%.1f%%", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp)) { s.buttonX = px / 100.f; g_dirty = true; }
         if (ImGui::SliderFloat("Y position", &py, 0.f, 100.f, "%.1f%%", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp)) { s.buttonY = py / 100.f; g_dirty = true; }
         SliderF("Button size", &s.buttonScale, 0.5f, 2.5f, "%.2fx");
-        SliderF("Button opacity", &s.buttonOpacity, PS_BUTTON_MIN_OPACITY, 1.f);
+        SliderF("Button opacity", &s.buttonOpacity, PS_BUTTON_MIN_OPACITY, 1.f, s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW ? "0 (hidden)" : "%.2f");
+        if (s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW) s.buttonOpacity = 0.f;      // snap: no faint label at "almost 0"
         if (s.buttonOpacity <= 0.001f) Note("Opacity 0: the button is invisible (label and outline too) but still works at its position. Mods > Proper GFX in the SAUtils menu also opens this menu.");
         SliderF("Menu scale", &s.uiScale, 0.6f, 2.0f, "%.2fx");
         Check("World shader patches (restart)", &s.worldPatch);
@@ -549,7 +543,7 @@ void DrawButton(PSSettings& s, int W, int H)
         else g_dirty = true;
         g_pressing = false; g_dragging = false; g_idle = 0.f;
     }
-    float a = s.buttonOpacity;
+    float a = s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW ? 0.f : s.buttonOpacity;   // 0 (or an old 0.05 from 1.3) = nothing drawn at all
     bool active = g_pressing || g_menuOpen;
     ImU32 bg = ImGui::GetColorU32(ImVec4(0.17f, 0.065f, 0.15f, a * (active ? 0.95f : (collapsed ? 0.55f : 0.78f))));
     ImU32 bd = ImGui::GetColorU32(ImVec4(0.95f, 0.52f, 0.28f, a * (g_dragging ? 1.0f : (collapsed ? 0.65f : 0.85f))));

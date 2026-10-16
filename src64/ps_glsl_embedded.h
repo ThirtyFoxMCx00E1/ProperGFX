@@ -54,8 +54,8 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/common.glsl", R"PGFXGLSL(// Proper GFX Mobile 1.4 (64-bit) - shared header of every post-process fragment shader.
-// Edit any .glsl in files/ProperGFX/shaders and press "Reload shaders" in the menu (or turn on Hot reload).
-// A file that does not compile is reported in the menu and the built-in copy is used instead, so a typo can never break the game.
+// All .glsl files of glsl64/ are compiled INTO libProperGFX64.so by build.sh (tools/glsl2h.py) - edit them here and rebuild.
+// A shader that does not compile on a GPU is reported in the menu + propergfx_log.txt and that effect is skipped (the game keeps running).
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 #define HP highp
 #else
@@ -432,7 +432,7 @@ void main(){
 }
 )PGFXGLSL" },
   { "fragment/shadows.glsl", R"PGFXGLSL(// [DynamicShadows] receiver - this text is INJECTED into the game's own object fragment shaders when the game builds them
-// (buildings, roads, terrain, vehicles). Restart the game after editing it. Sections:
+// (buildings, roads, terrain, vehicles). Built into the .so. Sections:
 //   //@@decl  -> inserted before main()
 //   //@@apply -> inserted right before the game applies its fog ("fcolor" = the lit pixel, Out_FogAmt = the game's fog amount)
 // Every patched shader is test-compiled on your GPU first; if this file breaks it, the mod falls back to a simpler patch / the
@@ -544,7 +544,7 @@ uniform mat4 uLightVP; uniform mat4 uObj; uniform float uUvScale;
 varying vec2 vUV;
 void main(){ vUV = aUV.xy * uUvScale; gl_Position = uLightVP * (uObj * vec4(aPos, 1.0)); }
 )PGFXGLSL" },
-  { "vertex/shadows.glsl", R"PGFXGLSL(// [DynamicShadows] receiver, vertex side - INJECTED into the game's own object vertex shaders (restart the game after editing).
+  { "vertex/shadows.glsl", R"PGFXGLSL(// [DynamicShadows] receiver, vertex side - INJECTED into the game's own object vertex shaders (built into the .so).
 //   //@@decl   -> inserted before main()
 //   //@@assign -> inserted right after the game computes "vec4 WorldPos = ObjMatrix * vec4(Position,1.0);"
 //   //@@nl     -> inserted after "vec3 WorldNormal = ...;" (lit shaders only): w = N.L toward the sun, fades shadows on surfaces facing away

@@ -1,6 +1,6 @@
 # Proper Shaders (PC) → Proper GFX Mobile 1.4 (GTA SA): feature status
 
-> 1.4: the 64-bit build (GTA SA 2.10) runs every effect from editable `.glsl` files in `files/ProperGFX/shaders/{vertex,fragment}/`; the 32-bit build (GTA SA 2.00) has the same effects built into the `.so` (C++/H only), without the new SunVector / bokeh / custom-pass extras.
+> 1.4: the 64-bit build (GTA SA 2.10) runs every effect from `.glsl` shaders (`glsl64/` in the source) compiled into `libProperGFX64.so`; the 32-bit build (GTA SA 2.00) has the same effects built into the `.so` (C++/H only), without the new SunVector / bokeh / custom-pass extras.
 
 Legend: ✅ implemented · 🟡 approximated with a screen-space / shader-patch / single-shadow-map substitute · ❌ engine = cannot do in GTA SA Mobile
 

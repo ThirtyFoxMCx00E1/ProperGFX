@@ -5,7 +5,7 @@
 #include <android/log.h>
 #endif
 // Failures worth reporting are also appended to <files/ProperGFX>/propergfx_log.txt (set once by main.cpp), so a user without adb can send it.
-static inline char* PS_LogFilePath() { static char p[640] = ""; return p; }
+inline char* PS_LogFilePath() { static char p[640] = ""; return p; }   // one buffer for the whole .so (was per source file: errors from other files never reached the log)
 static inline void PS_FileLog(const char* fmt, ...)
 {
     char* path = PS_LogFilePath(); if (!path[0]) return;

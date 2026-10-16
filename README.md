@@ -1,36 +1,42 @@
-# Proper GFX Mobile 1.4.0 (AML mod for GTA San Andreas Android)
+# Proper GFX Mobile 1.4.1 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
 | 32-bit | GTA SA **2.00** | armeabi-v7a | `libProperGFX32.so` | `src32/` | C++/H only (AML + SAUtils), built into the `.so` |
-| 64-bit | GTA SA **2.10** | arm64-v8a | `libProperGFX64.so` | `src64/` + `glsl64/` | C++/H + **GLSL files** in `files/ProperGFX/shaders/{vertex,fragment}/` |
+| 64-bit | GTA SA **2.10** | arm64-v8a | `libProperGFX64.so` | `src64/` + `glsl64/{fragment,vertex}` | C++/H + **GLSL**, compiled into the `.so` |
 
 For **AML 1.4.0** with **FLA 7.5** (no address patches, everything is hooked by exported symbol name). Uses [SAUtils](https://github.com/ThirtyFoxMCx00E1/SAUtils) when installed (optional).
 Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 
 ## Install
 1. Copy `libProperGFX32.so` (GTA SA 2.00) **or** `libProperGFX64.so` (GTA SA 2.10) into the AML `mods` folder.
-2. Optional: copy the `files/ProperGFX` folder from the zip into `Android/data/com.rockstargames.gtasa/files/` (example LUTs; the 64-bit build writes its `.glsl` files there by itself on the first launch).
+2. Optional: copy the `files/ProperGFX` folder from the zip into `Android/data/com.rockstargames.gtasa/files/` (example LUTs only - the shaders are inside the `.so`).
 3. Start the game. Everything lives in `files/ProperGFX/`; settings are `files/ProperGFX/TYFMC.ProperGFX.ini`.
 
 Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
 
+## What's new in 1.4.1
+* **64-bit: all `.glsl` shaders are inside `libProperGFX64.so`.** They live in the source tree (`glsl64/fragment`, `glsl64/vertex`, like SAShaderL's `GTASA/files/shaders` layout) and `build.sh` compiles them into the binary. Nothing is read from or written to the phone's files folder any more; the `files/ProperGFX/shaders` folder 1.4.0 created is removed automatically. (1.4.0 loaded the copies from that folder.)
+* **Floating button (64-bit):** Opacity below 0.06 is treated as 0 and nothing is drawn - an old `Opacity = 0.05` from the 32-bit range (which still drew a faint label) now becomes 0, and the slider snaps to "0 (hidden)".
+* **Log fix (both):** shader / driver errors from every part of the mod now reach `files/ProperGFX/propergfx_log.txt` (before, only messages from main.cpp did).
+* Verified on a PC GLES2 driver (Mesa): the full 64-bit post-process chain with every effect on, and the shadow tests (casting, receiving, unlit buildings/roads, time of day) with the built-in `shadows.glsl`.
+
 ## What's new in 1.4.0
 * **Two separate source trees.** `src32/` (32-bit, C++/H only) and `src64/` (64-bit, C++/H + GLSL). Changes for one build no longer touch the other.
-* **64-bit: real GLSL shader files** (same idea and layout as [SAShaderL](https://github.com/ThirtyFoxMCx00E1/SAShaderL)): every post-process pass, the shadow caster and the shadow receiver code are `.glsl` files in `files/ProperGFX/shaders/fragment/` and `.../vertex/`. Edit them on the phone, press **Reload shaders** in the menu (or turn on **Hot reload**). A file that does not compile on your GPU is shown in red in the menu, its driver error is logged, and the built-in copy is used - an edit can never break the game. Kept in our own folder so nothing collides with SAShaderL's `files/shaders`.
+* **64-bit: GLSL shaders** (same idea and layout as [SAShaderL](https://github.com/ThirtyFoxMCx00E1/SAShaderL)): every post-process pass, the shadow caster and the shadow receiver code are `.glsl` files (1.4.1: compiled into the `.so`).
 * **SAShaderL-compatible uniforms** in every `.glsl` (and in game shaders that declare them): `ShaderFlags`, `SunVector`, `Time`, `GameTimeSeconds`, `UnderWaterness`, `RoadsWetness`, `FarClipDist`, `EntityModel`, plus `PGFX_TimeSec`, `PGFX_Sun`, `PGFX_User0/1` (8 menu sliders).
-* **New 64-bit GLSL effects**, each with menu + ini settings: `shadows.glsl` (receiver, new shadow **Tint**), `sunvector.glsl` (**sun glow** + **golden hour** from the sun vector, plus the sun rays / lens flare), `dof.glsl` (**Depth of Field** modes TiltShift / CenterFocus, **bokeh**, **underwater blur**), `custom.glsl` (your own last pass, example "rain & night mood"), `tonemap.glsl`, `lut.glsl`, `fxaa.glsl`, `bloom_bright.glsl`, `blur_gauss.glsl`, `autoexposure.glsl`, `final.glsl`.
+* **New 64-bit GLSL effects**, each with menu + ini settings: `shadows.glsl` (receiver, new shadow **Tint**), `sunvector.glsl` (**sun glow** + **golden hour** from the sun vector, plus the sun rays / lens flare), `dof.glsl` (**Depth of Field** modes TiltShift / CenterFocus, **bokeh**, **underwater blur**), `custom.glsl` (last pass "rain & night mood" with 4 sliders), `tonemap.glsl`, `lut.glsl`, `fxaa.glsl`, `bloom_bright.glsl`, `blur_gauss.glsl`, `autoexposure.glsl`, `final.glsl`.
 * **Floating button opacity 0 = fully invisible (64-bit only).** Label, fill and outline all follow the opacity; at 0 nothing is drawn (it still works where it is, and the SAUtils Mods menu entry opens the menu too). The 32-bit build keeps the old minimum of 0.05.
 * **Folder / ini renamed:** `files/ProperShader` -> `files/ProperGFX`, `settings.ini` -> `TYFMC.ProperGFX.ini` (both builds, automatic migration).
 * **LUT fixed** (both builds). Why it did nothing before: the file name was case-sensitive (`Lut.bmp` was not found), only plain 24-bit BMP and uncompressed TGA loaded (BMP with BITFIELDS / 32-bit / top-down and RLE TGA failed silently), the LUT amount defaulted to 0 and a changed file was never re-read. Now: PNG / BMP / TGA / JPG (stb_image), any size 16^3 / 32^3 / 64^3 as strip or square atlas, upside-down LUTs auto-detected, case-insensitive lookup in `files/ProperGFX/` and `files/ProperGFX/luts/`, `[LUT] Enabled / Amount (1.0) / File (auto = lut.*)`, live reload when the file changes, a LUT picker and status line in the menu. Example LUTs: `luts/warm_sunset.bmp`, `luts/sepia.png`, `luts/cinematic.tga`.
 * **SAUtils** (both builds): *Mods > Proper GFX - open menu* and *Proper GFX - floating button On/Off*.
 
-## Editing the 64-bit shaders
+## The 64-bit shaders (glsl64/)
+* Edit `glsl64/fragment/*.glsl` / `glsl64/vertex/*.glsl` in the source, then run `./build.sh` - `tools/glsl2h.py` embeds them into `src64/ps_glsl_embedded.h` and they are compiled into `libProperGFX64.so`.
 * `fragment/common.glsl` is included by every post-process pass (`#pragma include "common.glsl"`, each file at most once).
-* `fragment/final.glsl` is compiled once per set of enabled features: the mod puts `#define FX_BLOOM 1` etc. and `#define TM_MODE n` in front, so a disabled effect costs nothing.
-* `fragment/shadows.glsl` / `vertex/shadows.glsl` are injected into the game's own object shaders (sections `//@@decl`, `//@@apply`, `//@@assign`, `//@@nl`), so they need a **game restart** after editing. They are still test-compiled on the driver first (1.3.2 self-test).
-* **Restore default .glsl files** in the menu overwrites your edits with the built-in versions.
-* `tools/glsl_validate.py <glslangValidator>` checks every pass and 160 `final.glsl` variants as GLSL ES 1.00 on a PC.
+* `fragment/final.glsl` is compiled once per set of enabled features (`#define FX_BLOOM 1`, ..., `#define TM_MODE n` in front), so a disabled effect costs nothing.
+* `fragment/shadows.glsl` / `vertex/shadows.glsl` are injected into the game's own object shaders (sections `//@@decl`, `//@@apply`, `//@@assign`, `//@@nl`) and test-compiled on the driver first.
+* `tools/glsl_validate.py <glslangValidator>` checks every pass and 160 `final.glsl` variants as GLSL ES 1.00.
 
 ## Build
 `./build.sh /path/to/android-ndk` (r24+) -> `dist/libProperGFX32.so` + `dist/libProperGFX64.so`. It regenerates `src64/ps_glsl_embedded.h` from `glsl64/` first.

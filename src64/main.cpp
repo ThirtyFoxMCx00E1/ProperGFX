@@ -1,5 +1,5 @@
-// Proper GFX Mobile (v1.4.0, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
-// Every shader is a .glsl file in files/ProperGFX/shaders/{vertex,fragment}/ (SAShaderL-style layout and uniforms), see ps_glsl.h.
+// Proper GFX Mobile (v1.4.1, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Every shader is a .glsl file of the source tree (glsl64/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
 #include <EGL/egl.h>
@@ -31,7 +31,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.0, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.1, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -150,14 +150,11 @@ static void OnFrame()
 
     if (!g_initDone)
     {
-        GLSL_ClearFailed();             // new GL context: give every user .glsl another chance
         LUT_Load(g_dir, g_cfg.lutFile);
         g_initDone = true;
     }
     LUT_Poll(g_dir, g_cfg.lutFile, dt);     // 1.4: a LUT that is replaced / renamed / dropped in (or picked in the menu) is reloaded live
 
-    // [GLSL] "Reload shaders" is always honoured; the file-change polling only runs with Hot reload on
-    GLSL_PollChanges(g_cfg.glslHotReload ? dt : 0.f);
 
     PSGLState gs; gs.Save();
     PSFrameInfo fi; fi.w = w; fi.h = h; fi.time = (float)fmod(accum, 3600.0); fi.dt = dt;
@@ -366,11 +363,9 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     snprintf(g_iniPath, sizeof(g_iniPath), "%s/" PS_INI_NAME, g_dir);
     if (!PS_LoadSettings(g_cfg, g_iniPath)) PS_SaveSettings(g_cfg, g_iniPath);
     UI_SetIniPath(g_iniPath);
-    {   // 64-bit: every shader is a .glsl file - write the defaults on the first launch, read the shadow receiver snippets
-        char sd[640]; snprintf(sd, sizeof(sd), "%s/shaders", g_dir);
-        GLSL_Init(sd);
-        World_LoadSnippets();
-    }
+    // 64-bit: every shader is a .glsl built into libProperGFX64.so (nothing is read from files/); also removes the shaders folder 1.4.0 wrote
+    GLSL_Init(g_dir);
+    World_LoadSnippets();
     World_SetEnabled(g_cfg.enabled && g_cfg.worldPatch);
     World_SetCompileCel(g_cfg.celWorld);
     {   // shadow crash guard: the guard file exists from launch until shadows ran fine for a while; if it is still there next launch, shadows stay off (safe mode)

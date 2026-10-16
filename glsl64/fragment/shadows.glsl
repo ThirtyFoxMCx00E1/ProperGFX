@@ -1,5 +1,5 @@
 // [DynamicShadows] receiver - this text is INJECTED into the game's own object fragment shaders when the game builds them
-// (buildings, roads, terrain, vehicles). Restart the game after editing it. Sections:
+// (buildings, roads, terrain, vehicles). Built into the .so. Sections:
 //   //@@decl  -> inserted before main()
 //   //@@apply -> inserted right before the game applies its fog ("fcolor" = the lit pixel, Out_FogAmt = the game's fog amount)
 // Every patched shader is test-compiled on your GPU first; if this file breaks it, the mod falls back to a simpler patch / the

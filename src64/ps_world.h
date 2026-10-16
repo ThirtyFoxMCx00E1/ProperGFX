@@ -32,5 +32,4 @@ void World_SetCompileShadows(bool on);      // shadow receiver code is compiled 
 void World_BeginFrame(const PSSettings& s, float wetRoads);   // recompute the uniform block (once per frame)
 void World_OnShaderSelected();                                 // call right after the game's glUseProgram
 void World_ClearProgramCache();
-void World_LoadSnippets();      // 64-bit: read the shadow receiver text from shaders/{fragment,vertex}/shadows.glsl (call once, after GLSL_Init)
-void World_SnippetsBuiltin();   // the user's shadows.glsl failed the driver test: use the built-in copy
+void World_LoadSnippets();      // 64-bit: shadow receiver text from the built-in shadows.glsl (call once, before the game builds shaders)

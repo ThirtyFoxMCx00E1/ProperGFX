@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string>
 #include "../src64/ps_world.h"
+#include "../src64/ps_glsl.h"
 static bool compile(const std::string& src, const char* tag)
 {
     GLuint s = glCreateShader(GL_FRAGMENT_SHADER); const char* p = src.c_str();
@@ -14,6 +15,7 @@ static bool compile(const std::string& src, const char* tag)
 }
 int main()
 {
+    GLSL_Init(""); World_LoadSnippets();     // 1.4: receiver text comes from the built-in shadows.glsl
     auto gpd = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
     EGLDisplay d = gpd(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr); EGLint a, b; eglInitialize(d, &a, &b); eglBindAPI(EGL_OPENGL_ES_API);
     EGLint ca[] = { EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE }; EGLConfig c; EGLint n; eglChooseConfig(d, ca, &c, 1, &n);

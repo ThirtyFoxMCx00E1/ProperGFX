@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+* 64-bit: the `.glsl` shaders (glsl64/fragment, glsl64/vertex) are compiled INTO `libProperGFX64.so`; no reading/writing of `files/ProperGFX/shaders` (the folder written by 1.4.0 is removed at start). Removed Hot reload / Reload shaders / Restore defaults; the menu lists shaders that fail to compile on the GPU.
+* 64-bit: button Opacity < 0.06 = 0 = nothing drawn (old 0.05 values included); slider snaps to "0 (hidden)".
+* Both: `PS_LogFilePath()` was `static inline` (one buffer per source file), so driver errors from ps_world / ps_fx / ps_shadow never reached propergfx_log.txt - fixed.
+* Host tests on Mesa GLES2: post-process chain with every effect, shadow pipeline with the built-in shadows.glsl.
+
 ## 1.4.0
 * Source split: `src32/` (GTA SA 2.00, C++/H only) and `src64/` (GTA SA 2.10, C++/H + GLSL, shaders in `glsl64/`). `build.sh` / `jni/Android.mk` build each `.so` from its own tree.
 * 64-bit: every shader is a `.glsl` file in `files/ProperGFX/shaders/{vertex,fragment}/` (written on first launch, built-in fallback per file, `#pragma include`, Reload shaders, Hot reload, Restore defaults, per-file status + driver error in the menu).

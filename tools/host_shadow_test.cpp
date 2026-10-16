@@ -12,6 +12,7 @@
 #include <string>
 #include "../src64/ps_shadow.h"
 #include "../src64/ps_world.h"
+#include "../src64/ps_glsl.h"
 #include "../src64/ps_glstate.h"
 
 static int fails = 0;
@@ -118,6 +119,7 @@ static GLuint BuildProgram(const std::string& vs, const std::string& fs, const c
 
 int main()
 {
+    GLSL_Init(""); World_LoadSnippets();     // 1.4: receiver text comes from the built-in shadows.glsl
     const int W = 800, H = 450;
     auto gpd = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
     EGLDisplay d = gpd(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr); EGLint a, b; eglInitialize(d, &a, &b); eglBindAPI(EGL_OPENGL_ES_API);

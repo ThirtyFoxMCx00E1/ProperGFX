@@ -67,7 +67,7 @@ static const Field kFields[] = {
     B("CelShading", "World", celWorld) F("CelShading", "WorldLevels", celWorldLevels)
     B("Outlines", "Enabled", outline) F("Outlines", "Strength", outlineStrength) F("Outlines", "Threshold", outlineThreshold)
     B("VHS", "Enabled", vhs) F("VHS", "Strength", vhsStrength)
-    B("GLSL", "HotReload", glslHotReload) B("GLSL", "CustomPass", glslCustom)
+    B("GLSL", "CustomPass", glslCustom)
     F("GLSL", "Param0", glslParam[0]) F("GLSL", "Param1", glslParam[1]) F("GLSL", "Param2", glslParam[2]) F("GLSL", "Param3", glslParam[3])
     F("GLSL", "Param4", glslParam[4]) F("GLSL", "Param5", glslParam[5]) F("GLSL", "Param6", glslParam[6]) F("GLSL", "Param7", glslParam[7])
     B("Button", "Show", showButton) F("Button", "X", buttonX) F("Button", "Y", buttonY) F("Button", "Size", buttonScale) F("Button", "Opacity", buttonOpacity) B("Button", "AutoCollapse", buttonCollapse)
@@ -100,7 +100,7 @@ static void Sanitize(PSSettings& s)
     s.sunSource = (s.sunSource < 0 || s.sunSource > 2) ? 0 : s.sunSource;
     s.shadowMinSun = clampf(s.shadowMinSun, 0.f, 0.4f); s.sunSmoothing = clampf(s.sunSmoothing, 0.005f, 1.f);
     s.buttonX = clampf(s.buttonX, 0.f, 1.f); s.buttonY = clampf(s.buttonY, 0.f, 1.f);
-    s.buttonScale = clampf(s.buttonScale, 0.5f, 2.5f); s.buttonOpacity = clampf(s.buttonOpacity, PS_BUTTON_MIN_OPACITY, 1.f);
+    s.buttonScale = clampf(s.buttonScale, 0.5f, 2.5f); s.buttonOpacity = clampf(s.buttonOpacity, PS_BUTTON_MIN_OPACITY, 1.f); if (s.buttonOpacity < PS_BUTTON_HIDDEN_BELOW) s.buttonOpacity = 0.f;
     s.lutAmount = clampf(s.lutAmount, 0.f, 1.f);
     s.dofMode = (s.dofMode < 0 || s.dofMode > 1) ? 0 : s.dofMode; s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
     s.dofUnderwater = clampf(s.dofUnderwater, 0.f, 1.f); s.sunGlow = clampf(s.sunGlow, 0.f, 1.5f); s.sunGlowSize = clampf(s.sunGlowSize, 0.03f, 0.6f);
@@ -191,7 +191,7 @@ void PS_ResetSettings(PSSettings& s)
     PSSettings d;   // keep the button / menu placement
     d.showButton = s.showButton; d.buttonX = s.buttonX; d.buttonY = s.buttonY; d.buttonScale = s.buttonScale;
     d.buttonOpacity = s.buttonOpacity; d.uiScale = s.uiScale; memcpy(d.lutFile, s.lutFile, sizeof(d.lutFile));
-    d.glslHotReload = s.glslHotReload; d.glslCustom = s.glslCustom; memcpy(d.glslParam, s.glslParam, sizeof(d.glslParam)); d.worldPatch = s.worldPatch; d.celWorld = s.celWorld;
+    d.glslCustom = s.glslCustom; memcpy(d.glslParam, s.glslParam, sizeof(d.glslParam)); d.worldPatch = s.worldPatch; d.celWorld = s.celWorld;
     s = d; ++g_worldGen;
 }
 

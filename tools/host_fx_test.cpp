@@ -11,6 +11,7 @@
 #include <time.h>
 #include "../src64/ps_fx.h"
 #include "../src64/ps_glstate.h"
+#include "../src64/ps_lut.h"
 
 int main(int argc, char** argv)
 {
@@ -67,7 +68,7 @@ int main(int argc, char** argv)
     PS_UpdateLive(st, getenv("PS_NIGHT") ? (float)atof(getenv("PS_NIGHT")) : 0.f);
     PSFrameInfo fi; fi.w = W; fi.h = H; fi.time = 3.0f; fi.dt = 0.016f; fi.underwater = under;
     fi.sunX = 0.75f; fi.sunY = 0.7f; fi.sunVis = 1.f;
-    if (const char* lp = getenv("PS_LUT")) fprintf(stderr, "lut loaded=%d\n", FX_LoadLut(lp));
+    if (const char* lp = getenv("PS_LUT")) fprintf(stderr, "lut loaded=%d\n", LUT_Load(".", lp));
 
     if (const char* bn = getenv("PS_BENCH")) {
         int N = atoi(bn); double total = 0;

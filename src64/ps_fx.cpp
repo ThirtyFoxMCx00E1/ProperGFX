@@ -50,7 +50,6 @@ FXState G;
 
 const GLfloat kTri[6] = { -1.f, -1.f, 3.f, -1.f, -1.f, 3.f };
 std::string g_lastErr;
-std::set<std::string> g_builtin;          // .glsl programs that failed from the user's files: built from the built-in copies until the next reload
 PSShaderGlobals g_glob;
 int g_passes = 0;
 
@@ -100,20 +99,14 @@ bool Link(Prog& p, const std::string& vsSrc, const std::string& fsSrc, const cha
     return true;
 }
 
-// Builds a pass from files/ProperGFX/shaders/<rel> (+ vertex/fullscreen.glsl). If the user's file does not compile on this GPU,
-// the error is shown in the menu and the built-in copy is used instead - an edited .glsl can never break the picture.
 bool BuildFile(Prog& p, const char* rel, const char* tag, const std::string& defines = std::string())
-{
+{   // every pass = a .glsl built into the .so (glsl64/ in the source tree)
     std::string vs, fs;
-    const bool bi = g_builtin.count(rel) != 0;
-    if (!GLSL_Source("vertex/fullscreen.glsl", vs, bi) || !GLSL_Source(rel, fs, bi)) { g_lastErr = "file missing"; }
-    else if (Link(p, vs, defines + fs, tag)) return true;
-    if (bi) return false;
-    GLSL_MarkFailed(rel, g_lastErr.c_str());
-    g_builtin.insert(rel); ++G.stats.glslErrors;
+    if (!GLSL_Source("vertex/fullscreen.glsl", vs) || !GLSL_Source(rel, fs)) { snprintf(G.status, sizeof(G.status), "%s missing from the build", rel); return false; }
+    if (Link(p, vs, defines + fs, tag)) return true;
+    GLSL_MarkFailed(rel, g_lastErr.c_str()); ++G.stats.glslErrors;
     p = Prog();
-    if (!GLSL_Source("vertex/fullscreen.glsl", vs, true) || !GLSL_Source(rel, fs, true)) return false;
-    return Link(p, vs, defines + fs, tag);
+    return false;
 }
 
 void DestroyRT(RT& r, bool del)
@@ -284,7 +277,7 @@ bool EnsureSize(int w, int h)
 
 } // namespace
 
-bool FX_Failed() { return G.failed && G.glslGen == GLSL_Generation(); }   // a reload gives a failed pipeline another chance
+bool FX_Failed() { return G.failed; }
 void FX_SetGlobals(const PSShaderGlobals& g) { g_glob = g; }
 const PSShaderGlobals& FX_Globals() { return g_glob; }
 bool FX_LutLoaded() { return LUT_Info().loaded; }
@@ -314,16 +307,6 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
 {
     if (fi.w < 16 || fi.h < 16) return false;
     g_fi = fi;
-    if (G.glslGen != GLSL_Generation())
-    {   // .glsl files changed (Reload shaders / hot reload): rebuild every program, keep textures and render targets
-        Prog* ps[] = { &G.pBright, &G.pDown, &G.pBlur, &G.pLum, &G.pAA, &G.pCustom };
-        for (Prog* p : ps) { if (p->id) glDeleteProgram(p->id); *p = Prog(); }
-        for (auto& v : G.variants) if (v.p.id) glDeleteProgram(v.p.id);
-        G.variants.clear(); G.customTried = false;
-        g_builtin.clear(); G.stats.glslErrors = 0;
-        G.glslGen = GLSL_Generation(); G.stats.glslGen = G.glslGen;
-        G.ready = false; G.failed = false;
-    }
     if (!EnsureInit()) return false;
     if (!EnsureSize(fi.w, fi.h)) { G.failed = true; snprintf(G.status, sizeof(G.status), "render targets failed"); return false; }
 
@@ -513,7 +496,7 @@ bool FX_Render(const PSSettings& in, const PSFrameInfo& fi)
     Set4(P, "uGH", g.hi[0] * ga, g.hi[1] * ga, g.hi[2] * ga, s.fxaaStrength);
     DrawTri();
     if (customOk)
-    {   // 7) [GLSL] custom pass: files/ProperGFX/shaders/fragment/custom.glsl on the finished picture
+    {   // 7) [GLSL] custom pass: custom.glsl on the finished picture
         glBindFramebuffer(GL_FRAMEBUFFER, 0); glViewport(0, 0, w, h);
         Use(G.pCustom, 7);
         BindTex(0, G.post.tex); Set1i(G.pCustom, "uTex", 0);

@@ -1,4 +1,4 @@
-// [DynamicShadows] receiver, vertex side - INJECTED into the game's own object vertex shaders (restart the game after editing).
+// [DynamicShadows] receiver, vertex side - INJECTED into the game's own object vertex shaders (built into the .so).
 //   //@@decl   -> inserted before main()
 //   //@@assign -> inserted right after the game computes "vec4 WorldPos = ObjMatrix * vec4(Position,1.0);"
 //   //@@nl     -> inserted after "vec3 WorldNormal = ...;" (lit shaders only): w = N.L toward the sun, fades shadows on surfaces facing away

@@ -5,9 +5,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.4.0"
+#define PS_VERSION     "1.4.1"
 #define PS_DIR_NAME    "ProperGFX"              // files/ProperGFX (1.3 and older: files/ProperShader, moved automatically)
 #define PS_INI_NAME    "TYFMC.ProperGFX.ini"    // 1.3 and older: settings.ini (renamed automatically)
+#define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)
 #define PS_BUTTON_MIN_OPACITY 0.0f              // 64-bit: Opacity 0 = button label, fill AND outline fully transparent (32-bit build keeps 0.05)
 
 enum PSTonemap { TM_OFF = 0, TM_ACES = 1, TM_TIMOTHY = 2, TM_REINHARD = 3 };
@@ -128,8 +129,7 @@ struct PSSettings
     float outlineStrength = 0.8f, outlineThreshold = 0.22f;
     bool  vhs          = false;
     float vhsStrength  = 0.6f;
-    // ---- [GLSL] files/ProperGFX/shaders ----
-    bool  glslHotReload = false;     // re-read changed .glsl files while the game runs (checked every 1.5 s)
+    // ---- [GLSL] (shaders are built into the .so) ----
     bool  glslCustom   = false;      // run fragment/custom.glsl as the last pass
     float glslParam[8] = { 0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };   // PGFX_User0 / PGFX_User1
     // ---- [Button] / [Menu] ----

@@ -38,7 +38,7 @@ bool Replace(std::string& s, const char* from, const std::string& to)
     return true;
 }
 
-// ---- shadow receiver code: loaded from files/ProperGFX/shaders/{fragment,vertex}/shadows.glsl (sections //@@decl, //@@apply, ...).
+// ---- shadow receiver code: glsl64/{fragment,vertex}/shadows.glsl built into the .so (sections //@@decl, //@@apply, ...).
 // The built-in copies of the same files are used when a file / section is missing. Read once at start (the game builds its shaders at load).
 std::string kShadowDecl, kShadowBlock;
 } // namespace
@@ -47,10 +47,9 @@ static std::string kVtxDecl, kVtxAssign, kVtxNL;
 
 static void LoadSection(const char* rel, const char* sec, std::string& out)
 {
-    if (GLSL_Section(rel, sec, out, false) && !out.empty()) return;
-    if (!GLSL_Section(rel, sec, out, true)) out.clear();
-    PS_Log("GLSL: %s section '%s' missing - built-in copy used", rel, sec);
+    if (!GLSL_Section(rel, sec, out)) { out.clear(); PS_Log("GLSL: %s section '%s' missing from the build", rel, sec); }
 }
+// shadow receiver text from glsl64/fragment/shadows.glsl + glsl64/vertex/shadows.glsl (built into the .so)
 void World_LoadSnippets()
 {
     LoadSection("fragment/shadows.glsl", "decl", kShadowDecl);
@@ -58,13 +57,6 @@ void World_LoadSnippets()
     LoadSection("vertex/shadows.glsl", "decl", kVtxDecl);
     LoadSection("vertex/shadows.glsl", "assign", kVtxAssign);
     LoadSection("vertex/shadows.glsl", "nl", kVtxNL);
-}
-// the driver self-test rejected the user's shadows.glsl: use the built-in copy for the remaining shaders
-void World_SnippetsBuiltin()
-{
-    GLSL_Section("fragment/shadows.glsl", "decl", kShadowDecl, true); GLSL_Section("fragment/shadows.glsl", "apply", kShadowBlock, true);
-    GLSL_Section("vertex/shadows.glsl", "decl", kVtxDecl, true); GLSL_Section("vertex/shadows.glsl", "assign", kVtxAssign, true);
-    GLSL_Section("vertex/shadows.glsl", "nl", kVtxNL, true);
 }
 
 static bool EraseOnce(std::string& s, const std::string& what) { if (what.empty()) return false; size_t p = s.find(what); if (p == std::string::npos) return false; s.erase(p, what.size()); return true; }
