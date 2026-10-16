@@ -1,4 +1,4 @@
-# Proper GFX Mobile 1.4.0 - ndk-build alternative to build.sh (run tools/glsl2h.py Shaders src64/ps_glsl_embedded.h first).
+# Proper GFX Mobile 1.4.0 - ndk-build alternative to build.sh (run tools/glsl2h.py shaders src64/ps_glsl_embedded.h first).
 #   armeabi-v7a -> libProperGFX32.so from src32/ (C++/H only)      arm64-v8a -> libProperGFX64.so from src64/ (C++/H + GLSL)
 LOCAL_PATH := $(call my-dir)/..
 include $(CLEAR_VARS)

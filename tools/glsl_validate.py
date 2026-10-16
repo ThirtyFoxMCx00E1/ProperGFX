@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# Host check of Shaders/: resolves "#pragma include" like ps_glsl.cpp and compiles every pass + many final.glsl variants
+# Host check of shaders/: resolves "#pragma include" like ps_glsl.cpp and compiles every pass + many final.glsl variants
 # as GLSL ES 1.00 with Khronos glslangValidator.  usage: tools/glsl_validate.py /path/to/glslangValidator
 import os, sys, subprocess, itertools, random
-GV = sys.argv[1]; ROOT = os.path.join(os.path.dirname(__file__), '..', 'Shaders'); TMP = '/tmp/gt'
+GV = sys.argv[1]; ROOT = os.path.join(os.path.dirname(__file__), '..', 'shaders'); TMP = '/tmp/gt'
 os.makedirs(TMP, exist_ok=True)
 def expand(rel, seen):
     if rel in seen: return ''
@@ -15,7 +15,7 @@ def expand(rel, seen):
     return '\n'.join(out) + '\n'
 def check(name, src, stage):
     p = os.path.join(TMP, name + '.' + stage)
-    open(p, 'w').write('#version 100\n' + src)
+    open(p, 'w').write(src if src.lstrip().startswith('#version') else '#version 100\n' + src)
     r = subprocess.run([GV, p], capture_output=True, text=True)
     ok = r.returncode == 0
     if not ok: print('FAIL', name, r.stdout[-1500:])
@@ -40,4 +40,8 @@ def sec(rel, name):
 fs = 'precision mediump float;\nvarying mediump float Out_FogAmt;\n' + sec('fragment/shadows.glsl','decl') + 'void main(){ lowp vec4 fcolor = vec4(1.0);\n' + sec('fragment/shadows.glsl','apply') + 'gl_FragColor = fcolor; }\n'
 vs = 'attribute vec3 Position; attribute vec3 Normal; uniform mat4 ObjMatrix; varying mediump float Out_FogAmt;\n' + sec('vertex/shadows.glsl','decl') + 'void main(){ vec4 WorldPos = ObjMatrix * vec4(Position,1.0);' + sec('vertex/shadows.glsl','assign') + 'vec3 WorldNormal = mat3(ObjMatrix) * Normal;' + sec('vertex/shadows.glsl','nl') + 'Out_FogAmt = 0.0; gl_Position = WorldPos; }\n'
 bad += not check('recv_f', fs, 'frag'); bad += not check('recv_v', vs, 'vert')
+# 1.4.3 deferred shadows (GLSL ES 3.00, the file carries its own #version)
+for nm, rel, st in [('depth_v','vertex/shadow_depth.glsl','vert'), ('depth_f','fragment/shadow_depth.glsl','frag'), ('screen_v','vertex/shadow_screen.glsl','vert'),
+                    ('mask_f','fragment/shadow_mask.glsl','frag'), ('apply_f','fragment/shadow_apply.glsl','frag')]:
+    bad += not check(nm, expand(rel, set()), st); n += 1
 print('glsl_validate: %d shaders checked, %d failed' % (n + 11, bad)); sys.exit(1 if bad else 0)

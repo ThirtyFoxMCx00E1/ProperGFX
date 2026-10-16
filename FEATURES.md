@@ -1,6 +1,6 @@
 # Proper Shaders (PC) → Proper GFX Mobile 1.4 (GTA SA): feature status
 
-> 1.4: the 64-bit build (GTA SA 2.10) runs every effect from `.glsl` shaders (`Shaders/` in the source) compiled into `libProperGFX64.so`; the 32-bit build (GTA SA 2.00) has the same effects built into the `.so` (C++/H only), without the new SunVector / bokeh / custom-pass extras.
+> 1.4: the 64-bit build (GTA SA 2.10) runs every effect from `.glsl` shaders (`shaders/` in the source) compiled into `libProperGFX64.so`; the 32-bit build (GTA SA 2.00) has the same effects built into the `.so` (C++/H only), without the new SunVector / bokeh / custom-pass extras.
 
 Legend: ✅ implemented · 🟡 approximated with a screen-space / shader-patch / single-shadow-map substitute · ❌ engine = cannot do in GTA SA Mobile
 
@@ -10,8 +10,8 @@ Legend: ✅ implemented · 🟡 approximated with a screen-space / shader-patch 
 | 2 | Per-pixel lighting (hundreds of lights) | ❌ engine = cannot do in GTA SA Mobile | Lighting is per-vertex with max 3 directional lights in the game's own shaders. |
 | 3 | Volumetric light beams | ❌ engine = cannot do in GTA SA Mobile | Needs a depth buffer. Not exposed on GLES2 default framebuffer. |
 | 4 | Shadermaps (normal/roughness/metallic) | ❌ engine = cannot do in GTA SA Mobile | Needs deferred G-buffer + TXDP streaming. |
-| 5 | Dynamic 4 cascaded shadows (PCSS) | 🟡 approximated | ONE sun shadow map (25-160 m, up to 2048 px, 4-tap PCF) rendered from the game's sun vector: buildings, roads, trees (alpha-cut leaves) and vehicles cast; lit AND unlit (prelit) world shaders receive (v1.3). Follows the game clock; strength follows timecyc.dat (Shdw). Low = off, Medium / High = on. No cascades / PCSS. |
-| 6 | Soft shadow mask + gaussian blur | 🟡 approximated | PCF soft edges + fade at the map border; no separate blurred shadow mask. |
+| 5 | Dynamic 4 cascaded shadows (PCSS) | 🟡 approximated | 64-bit 1.4.3: **2 cascades** (near 14-40 m, far 25-160 m, up to 2048 px, D16 hardware PCF) applied as a deferred screen-space mask from the scene depth (libZyZyGFX64 technique): every visible surface receives, peds included. 32-bit: one map, in-shader receivers. Follows the game clock and timecyc.dat. No PCSS. |
+| 6 | Soft shadow mask + gaussian blur | 🟡 approximated | 64-bit: a real screen-space shadow mask (`shadow_mask.glsl`, full or half resolution, 3x3 PCF grid) multiplied into the scene; no separate gaussian blur. |
 | 7 | Screen-space GI with AO | ❌ engine = cannot do in GTA SA Mobile | Needs depth + normals. |
 | 8 | Skylight (sky occlusion) | ❌ engine = cannot do in GTA SA Mobile | Needs depth/world-space data. |
 | 9 | Tricolored ambient lighting | ❌ engine = cannot do in GTA SA Mobile | Ambient is one time-cycle colour inside the game's shaders. |

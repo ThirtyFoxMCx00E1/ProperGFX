@@ -12,6 +12,7 @@ const char* const PS_GradeNames[]   = { "Neutral", "Cinematic (teal/orange)", "W
 const char* const PS_TonemapNames[] = { "Off", "ACES", "Timothy", "Reinhard" }; const int PS_TonemapCount = 4;
 const char* const PS_TimeNames[]    = { "Auto", "Day", "Night" }; const int PS_TimeCount = 3;
 const char* const PS_SunSourceNames[] = { "Auto", "TimeCycle", "Light" }; const int PS_SunSourceCount = 3;
+const char* const PS_ShadowMethodNames[] = { "Deferred", "InShader" }; const int PS_ShadowMethodCount = 2;
 const char* const PS_DofModeNames[] = { "TiltShift", "CenterFocus" }; const int PS_DofModeCount = 2;
 
 // ------------------------------------------------------------------ field table
@@ -61,6 +62,7 @@ static const Field kFields[] = {
     F("DynamicShadows", "Distance", shadowDist) I("DynamicShadows", "UpdateEvery", shadowEvery) F("DynamicShadows", "Softness", shadowSoft)
     F("DynamicShadows", "Bias", shadowBias) F("DynamicShadows", "MinSunElevation", shadowMinSun) F("DynamicShadows", "SunSmoothing", sunSmoothing)
     B("DynamicShadows", "ShowDebug", shadowDebug)
+    E("DynamicShadows", "Method", shadowMethod, PS_ShadowMethodNames, 2) B("DynamicShadows", "HalfResMask", shadowMaskHalf)
     E("DynamicShadows", "SunSource", sunSource, PS_SunSourceNames, 3) B("DynamicShadows", "TimecycStrength", shadowTimecyc) B("DynamicShadows", "CrashGuard", shadowGuard)
     F("DynamicShadows", "Tint", shadowTint) F("DynamicShadows", "TintR", shadowTintR) F("DynamicShadows", "TintG", shadowTintG) F("DynamicShadows", "TintB", shadowTintB)
     B("CelShading", "Enabled", cel) F("CelShading", "Levels", celLevels) F("CelShading", "Amount", celAmount)
@@ -105,6 +107,7 @@ static void Sanitize(PSSettings& s)
     s.dofMode = (s.dofMode < 0 || s.dofMode > 1) ? 0 : s.dofMode; s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
     s.dofUnderwater = clampf(s.dofUnderwater, 0.f, 1.f); s.sunGlow = clampf(s.sunGlow, 0.f, 1.5f); s.sunGlowSize = clampf(s.sunGlowSize, 0.03f, 0.6f);
     s.goldenHour = clampf(s.goldenHour, 0.f, 1.f); s.shadowTint = clampf(s.shadowTint, 0.f, 1.f);
+    s.shadowMethod = s.shadowMethod < 0 || s.shadowMethod > 1 ? 0 : s.shadowMethod;
     s.shadowTintR = clampf(s.shadowTintR, 0.f, 1.f); s.shadowTintG = clampf(s.shadowTintG, 0.f, 1.f); s.shadowTintB = clampf(s.shadowTintB, 0.f, 1.f);
     for (float& p : s.glslParam) p = clampf(p, -1.f, 1.f);
     s.uiScale = clampf(s.uiScale, 0.6f, 2.f);
@@ -210,11 +213,11 @@ void PS_ApplyQuality(PSSettings& s, int q)
         case Q_MEDIUM:
             s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = false; s.cas = true; s.vignette = true;
             s.shadows = true;                       // Medium: shadows + bloom + sun rays for mid-range phones
-            s.casStrength = 0.40f; s.fxaaStrength = 0.85f; s.shadowRes = 1; s.shadowEvery = 4; s.shadowDist = 80.f; break;
+            s.casStrength = 0.40f; s.fxaaStrength = 0.85f; s.shadowRes = 1; s.shadowEvery = 4; s.shadowDist = 80.f; s.shadowMaskHalf = true; break;
         case Q_HIGH:
             s.autoExp = true; s.bloom = true; s.sunRays = true; s.lensFlare = true; s.cas = true; s.vignette = true;
             s.shadows = true;                       // High: everything, bigger shadow map, updated more often
-            s.casStrength = 0.50f; s.fxaaStrength = 0.90f; s.bloomRadius = 1.2f; s.shadowRes = 2; s.shadowEvery = 2; s.shadowDist = 100.f; break;
+            s.casStrength = 0.50f; s.fxaaStrength = 0.90f; s.bloomRadius = 1.2f; s.shadowRes = 2; s.shadowEvery = 2; s.shadowDist = 100.f; s.shadowMaskHalf = false; break;
     }
     ++g_worldGen;
 }

@@ -207,7 +207,7 @@ int main()
     auto readPx = [&](int px, int py, float* rgb) { unsigned char c4[4]; glReadPixels(px, py, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, c4); for (int i = 0; i < 3; ++i) rgb[i] = c4[i] / 255.f; };
     auto lum = [](const float* c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; };
 
-    PSSettings st; st.shadowEvery = 1; st.shadowStrength = 0.6f; st.shadowRes = 2; st.shadowDist = 60.f; st.sunSmoothing = 1.0f;   // 1.0 = no smoothing for the test
+    PSSettings st; st.shadowMethod = 1; st.shadowEvery = 1; st.shadowStrength = 0.6f; st.shadowRes = 2; st.shadowDist = 60.f; st.sunSmoothing = 1.0f;   // 1.0 = no smoothing for the test
     bool useHint = false; GLuint progActive = prog;
     auto runFrames = [&](const float sun[3], int n) {
         for (int f = 0; f < n; ++f)

@@ -100,7 +100,7 @@ bool Link(Prog& p, const std::string& vsSrc, const std::string& fsSrc, const cha
 }
 
 bool BuildFile(Prog& p, const char* rel, const char* tag, const std::string& defines = std::string())
-{   // every pass = a .glsl built into the .so (Shaders/ in the source tree)
+{   // every pass = a .glsl built into the .so (shaders/ in the source tree)
     std::string vs, fs;
     if (!GLSL_Source("vertex/fullscreen.glsl", vs) || !GLSL_Source(rel, fs)) { snprintf(G.status, sizeof(G.status), "%s missing from the build", rel); return false; }
     if (Link(p, vs, defines + fs, tag)) return true;

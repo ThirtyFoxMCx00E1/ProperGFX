@@ -24,8 +24,9 @@ static const PSGuide kGuide[] = {
    "NOT possible as SSAO: it needs a depth buffer and normals, and the game renders without an accessible depth texture. The map's baked vertex lighting already contains AO, and [DynamicShadows] adds the sun-blocking part." },
  { "[Shadows]", 0,
    "Most obvious via name, structures and overall environment now cast a shadow in real time.",
-   "Implemented: [DynamicShadows] - shadow_caster.glsl renders the captured world meshes from the game's sun (SunVector) into a shadow map; shadows.glsl is injected into the game's own object shaders "
-   "(buildings, roads, terrain, vehicles) with 4-tap soft PCF and a Tint colour. Follows the game clock, strength follows timecyc.dat (Shdw). One map 25-160 m around you; peds, water and glass neither cast nor receive. Medium / High only." },
+   "Implemented: [DynamicShadows] Method = Deferred (1.4.3 default, the libZyZyGFX64 technique): the scene target gets a readable depth texture, the captured world meshes are rendered from the "
+   "game's sun into 2 cascades (shadow_depth.glsl), then shadow_mask.glsl rebuilds each pixel's position from the depth and darkens it right after RenderScene, before the HUD. "
+   "Every surface receives, the game's shaders are not changed. Method = In-shader keeps the 1.4.2 receivers. Follows the game clock, strength follows timecyc.dat. Medium / High only." },
  { "[SSR - Screen Space Reflections]", 2,
    "Another obvious feature by name, it adds realistic reflections on wet floors, and puddles.",
    "NOT possible: SSR ray-marches the depth buffer and needs normals, neither of which the game exposes. What exists: [WorldRainfall] darkens / adds sheen while it rains (RoadsWetness), [SurfaceShading] scales the vehicle reflections." },
@@ -34,7 +35,7 @@ static const PSGuide kGuide[] = {
    "NOT in this build: a believable cone needs scene depth to fade it where it meets geometry; without it the cone would be a flat sprite floating in the air. The game's own headlight coronas and ground pools remain." },
  { "[Contact Shadows]", 2,
    "Uses screen-space depth buffers inside light shaders to cast sharp, localized shadows that fix light leaking and separation artifacts where objects meet.",
-   "NOT possible as screen-space (no depth buffer). The goal - no gap between an object and its shadow - is handled in [DynamicShadows] by a bias that follows the sun height; lower Bias to tighten contact." },
+   "Partly: with Method = Deferred the shadow mask reads the scene depth and rebuilds normals from it, with a slope-scaled bias so shadows touch the objects; lower Bias to tighten contact." },
  { "[LUT]", 0,
    "A digital file containing a mathematical formula that translates specific input color values from an image or video into new output color values. "
    "To install an LUT, grab your own LUT formula via .png and go through the .ini configs. "

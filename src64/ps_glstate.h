@@ -17,7 +17,8 @@ struct PSGLState
     GLboolean sampleCov = 0, sampleAlpha = 0;
     GLint bSrcRGB = 0, bDstRGB = 0, bSrcA = 0, bDstA = 0, bEqRGB = 0, bEqA = 0;
     GLboolean colorMask[4] = {1, 1, 1, 1}, depthMask = 1;
-    GLfloat clearColor[4] = {0};
+    GLfloat clearColor[4] = {0}, clearDepth = 1.f;
+    GLint depthFunc = GL_LESS, cullMode = GL_BACK, frontFace = GL_CCW;
     GLint unpackAlign = 4;
     struct Attr { GLint enabled, size, type, norm, stride, buf; GLvoid* ptr; } at[NATTR];
 

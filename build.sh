@@ -1,7 +1,7 @@
 #!/bin/sh
 # Proper GFX Mobile 1.4.0 - two separate source trees:
 #   src32/ -> libProperGFX32.so  GTA SA 2.00, armeabi-v7a  (C++/H only: AML + SAUtils, shaders built into the .so)
-#   src64/ -> libProperGFX64.so  GTA SA 2.10, arm64-v8a    (C++/H + GLSL: shaders are .glsl files in files/ProperGFX/shaders/{vertex,fragment})
+#   src64/ -> libProperGFX64.so  GTA SA 2.10, arm64-v8a    (C++/H + GLSL: the .glsl files in shaders/{vertex,fragment} are compiled into the .so)
 # usage: ./build.sh /path/to/android-ndk   (r24 or newer)
 set -e
 NDK="${1:-$ANDROID_NDK_HOME}"
@@ -10,8 +10,8 @@ TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/dist"; mkdir -p "$OUT"
 IMG="$HERE/third_party/imgui"
-# 64-bit: every .glsl in Shaders/{fragment,vertex} is compiled INTO libProperGFX64.so (Shaders/ -> src64/ps_glsl_embedded.h)
-python3 "$HERE/tools/glsl2h.py" "$HERE/Shaders" "$HERE/src64/ps_glsl_embedded.h"
+# 64-bit: every .glsl in shaders/{fragment,vertex} is compiled INTO libProperGFX64.so (shaders/ -> src64/ps_glsl_embedded.h)
+python3 "$HERE/tools/glsl2h.py" "$HERE/shaders" "$HERE/src64/ps_glsl_embedded.h"
 COMMONSRC="$HERE/third_party/aml/mod/logger.cpp $HERE/third_party/aml/mod/config.cpp \
  $IMG/imgui.cpp $IMG/imgui_draw.cpp $IMG/imgui_tables.cpp $IMG/imgui_widgets.cpp $IMG/imgui_impl_opengl3.cpp"
 FLAGS="-std=c++17 -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -fno-rtti -ffunction-sections -fdata-sections \

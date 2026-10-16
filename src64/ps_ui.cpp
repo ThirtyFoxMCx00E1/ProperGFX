@@ -6,6 +6,8 @@
 #include "ps_world.h"
 #include "ps_lut.h"
 #include "ps_glsl.h"
+#include "ps_scene.h"
+#include "ps_shadow.h"
 #include <atomic>
 #include <strings.h>
 #include "imgui.h"
@@ -39,6 +41,7 @@ bool InRects(float x, float y)
 ImGuiContext* g_ctx = nullptr;
 bool  g_menuOpen = false;
 bool  g_dirty = false;               // settings changed -> save when interaction ends
+bool  g_methodChanged = false;        // shadow Method switched to / from In-shader this session (needs a restart)
 char  g_ini[512] = "";
 float g_fontPx = 0.f;
 int   g_screenW = 0, g_screenH = 0;
@@ -225,6 +228,14 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
     if (!shPrev && s.shadows) s.shadowRetry = true;      // switching shadows on also clears safe mode
     if (shOpen)
     {
+        {
+            static const char* methods[] = { "Deferred (screen-space, like ZyZyGFX)", "In-shader (1.4.2 receivers)" };
+            const int before = s.shadowMethod;
+            Combo("Method", &s.shadowMethod, methods, 2);
+            if (before != s.shadowMethod && (before == 1 || s.shadowMethod == 1)) g_methodChanged = true;
+            if (g_methodChanged) ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Restart the game: In-shader needs the receivers compiled into the game shaders at load (Deferred does not).");
+            if (s.shadowMethod == 0) Check("Half-resolution mask (faster)", &s.shadowMaskHalf);
+        }
         SliderF("Strength", &s.shadowStrength, 0.f, 1.f);
         { static const char* res[] = { "512", "1024", "2048" }; Combo("Resolution", &s.shadowRes, res, 3); }
         SliderF("Distance (m)", &s.shadowDist, 25.f, 160.f, "%.0f");
@@ -239,17 +250,27 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         Check("Crash guard (safe mode after a failed launch)", &s.shadowGuard);
         SliderF("Shadow tint amount", &s.shadowTint, 0.f, 1.f);
         SliderF("Tint red", &s.shadowTintR, 0.f, 1.f); SliderF("Tint green", &s.shadowTintG, 0.f, 1.f); SliderF("Tint blue", &s.shadowTintB, 0.f, 1.f);
-        Note("Shadow code = shadows.glsl (fragment + vertex), built into libProperGFX64.so.");
+        if (s.shadowMethod == 0) Note("Deferred: casters -> 2 cascades (shadow_depth.glsl), then shadow_mask.glsl rebuilds every pixel's position from the scene depth and darkens it (shadow_apply.glsl). Game shaders are not touched.");
+        else Note("In-shader: shadow code = shadows.glsl (fragment + vertex) compiled into the game's world shaders.");
         Note("Sun source Auto = the game's time-cycle sun vector (follows the game clock). Strength can follow the Shdw column of timecyc.dat.");
         Note("Buildings, roads, terrain and vehicles cast and receive shadows; pedestrians do not.");
-        if (s.shadows && st.shadowReceivers == 0 && st.patchedShaders >= 10)
+        if (s.shadows && s.shadowMethod == 1 && st.shadowReceivers == 0 && st.patchedShaders >= 10)
             ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Restart the game to finish turning shadows on (the receiver code is compiled into the shaders when the game starts).");
         if (st.shadow)
         {
             const PSShadowStats& sh = *st.shadow;
             ImGui::Text("Casters: %d captured, %d rendered, %d skipped", sh.captured, sh.replayed, sh.rejected);
             ImGui::Text("Remembered: %d casters (%d kept although out of view), %d draws into other targets ignored", sh.cacheSize, sh.cacheKept, sh.otherTargets);
-            ImGui::Text("Receivers: %d shader variants carry the shadow lookup", st.shadowReceivers);
+            if (s.shadowMethod == 1) ImGui::Text("Receivers: %d shader variants carry the shadow lookup", st.shadowReceivers);
+            if (s.shadowMethod == 0 && st.scene)
+            {
+                const PSSceneStats& sc = *st.scene;
+                if (sc.rqReady) ImGui::Text("Render queue: command slot %d%s, events posted %u / ran %u", sc.rqSlot, sc.chained ? " (chained)" : "", sc.posted[2], sc.ran[2]);
+                else ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Render queue: %s", sc.rqSymbols ? (sc.rqBadLayout ? "layout not recognised" : "waiting") : "symbols missing");
+                if (sc.depthTex) ImGui::Text("Scene target: FBO %d %dx%d, depth texture %u (%s%d-bit), swaps %d", sc.sceneFbo, sc.w, sc.h, sc.depthTex, sc.foreignDepth ? "from another mod, " : "", sc.depthBits, sc.swaps);
+                else ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Scene target: no readable depth yet");
+                if (sc.note[0]) ImGui::TextWrapped("Scene: %s", sc.note);
+            }
             if (st.build)
             {
                 const PSBuildStats& b = *st.build;
@@ -475,7 +496,7 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         else ImGui::TextDisabled("All %d built-in .glsl shaders OK", (int)GLSL_Files().size());
         for (const PSGlslFile& f : GLSL_Files())
             if (f.failed) { ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s  FAILED", f.path.c_str()); if (!f.error.empty()) ImGui::TextWrapped("   %s", f.error.c_str()); }
-        Note("The .glsl shaders (Shaders/fragment + Shaders/vertex in the source) are compiled into the .so - nothing is read from the files folder. "
+        Note("The .glsl shaders (shaders/fragment + shaders/vertex in the source) are compiled into the .so - nothing is read from the files folder. "
              "Uniforms (same as SAShaderL): ShaderFlags, SunVector, Time, GameTimeSeconds, UnderWaterness, RoadsWetness, FarClipDist, EntityModel.");
     }
     if (ImGui::CollapsingHeader("Menu & floating button"))
@@ -712,7 +733,7 @@ void UI_Render(PSSettings& s, int W, int H, float dt, const PSUIStatus& st)
         ImDrawList* dl = ImGui::GetForegroundDrawList(); float sz = H * 0.26f; ImVec2 p0(W - sz - 8.f, 8.f), p1(W - 8.f, 8.f + sz);
         dl->AddRectFilled(ImVec2(p0.x - 3, p0.y - 3), ImVec2(p1.x + 3, p1.y + 3), IM_COL32(0, 0, 0, 200));
         dl->AddImage((ImTextureID)(intptr_t)st.shadowTex, p0, p1, ImVec2(0, 1), ImVec2(1, 0));
-        dl->AddText(ImVec2(p0.x + 4, p0.y + 2), IM_COL32(255, 220, 120, 255), "shadow map");
+        dl->AddText(ImVec2(p0.x + 4, p0.y + 2), IM_COL32(255, 220, 120, 255), s.shadowMethod == 0 ? "shadow mask" : "shadow map");
     }
     if (s.showButton) DrawButton(s, W, H);
     else { std::lock_guard<std::mutex> l(g_mx); g_rects[0].valid = false; }

@@ -16,6 +16,7 @@ struct PSUIStatus
     bool lutLoaded = false;
     const PSFxStats* fx = nullptr;
     const PSShadowStats* shadow = nullptr;
+    const struct PSSceneStats* scene = nullptr;
     unsigned int shadowTex = 0;
 };
 

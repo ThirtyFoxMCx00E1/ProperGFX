@@ -1,9 +1,15 @@
 # Changelog
 
+## 1.4.3
+* 64-bit: deferred (screen-space) sun shadows, the technique of libZyZyGFX64. Readable scene depth (depth renderbuffer -> depth texture after rqTargetSelect), our commands in the game's RenderQueue before/after RenderScene (rqDebugMarker slot), 2 shadow cascades (D16 compare), `shadow_depth.glsl`, `shadow_screen.glsl`, `shadow_mask.glsl`, `shadow_apply.glsl` (GLSL ES 3.00). The game's shaders are no longer patched for shadows.
+* 64-bit: `[DynamicShadows] Method` (Deferred / InShader) and `HalfResMask`; menu status for the render queue and the scene target. GL state save/restore also covers depth func, cull mode, front face, clear depth.
+* Repo: `Shaders/` renamed to `shaders/`.
+* Tools: `host_deferred_test.cpp` (Mesa GLES 3.2: depth upgrade, cascades, mask, apply, half-res mask, state restore, night, plus a mock 2.10 render queue). `glsl_validate.py` also checks the ES 3.00 files.
+
 ## 1.4.2
 * Fix (both builds): shadow receiver `#ifdef` was inserted mid-line into the game's one-line shaders -> Mali rejected every receiver (P0001 "#endif directive found outside if-section") and shadows were disabled for the session. The block now starts on a new line.
 * `tools/host_patch_test.cpp` + `tools/patch_check.sh`: exact game shaders from the Mali-G57 log, patched and validated with glslang.
-* Repo: `glsl64/` renamed to `Shaders/`.
+* Repo: `glsl64/` renamed to `Shaders/` (1.4.3: `shaders/`).
 * 64-bit: FEATURE GUIDE text (14 entries); `[LUT] Folders`.
 
 ## 1.4.1

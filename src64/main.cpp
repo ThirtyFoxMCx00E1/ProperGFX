@@ -1,5 +1,5 @@
-// Proper GFX Mobile (v1.4.2, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
-// Every shader is a .glsl file of the source tree (Shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
+// Proper GFX Mobile (v1.4.3, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
 #include <EGL/egl.h>
@@ -16,6 +16,7 @@
 #include "ps_ui.h"
 #include "ps_world.h"
 #include "ps_shadow.h"
+#include "ps_scene.h"
 #include "ps_log.h"
 #include "ps_lut.h"
 #include "ps_glsl.h"
@@ -31,7 +32,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.2, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.3, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -110,7 +111,7 @@ static void OnFrame()
     if (ctx == EGL_NO_CONTEXT) return;
     if (ctx != g_ctx)
     {
-        if (g_ctx != EGL_NO_CONTEXT) { FX_ContextLost(); UI_ContextLost(); LUT_ContextLost(); World_ClearProgramCache(); }
+        if (g_ctx != EGL_NO_CONTEXT) { FX_ContextLost(); UI_ContextLost(); LUT_ContextLost(); World_ClearProgramCache(); Scene_ContextLost(); Shadow_ContextLost(); }
         g_ctx = ctx;
         PSGLState::InitCaps();
         g_initDone = false;
@@ -132,10 +133,13 @@ static void OnFrame()
     float wet = g_pWetRoads ? *g_pWetRoads : 0.f;
     World_SetEnabled(g_cfg.enabled);
     Shadow_Configure(g_cfg, FX_Stats().adaptiveLevel);
+    Scene_SetScreenSize(w, h);
     {   // the game's own sun vector (points TOWARD the sun, world space, z up) - the same vector the sun disc / coronas use
         float sv[3] = { 0.f, 0.f, 1.f }; bool ok = false;
         if (g_pVectorToSun && g_pSunIndex) { int idx = *g_pSunIndex; if (idx >= 0 && idx < 16) { const float* p = g_pVectorToSun + idx * 3; sv[0] = p[0]; sv[1] = p[1]; sv[2] = p[2]; ok = isfinite(sv[0]) && isfinite(sv[1]) && isfinite(sv[2]); } }
         Shadow_SetSunHint(sv, ok);
+        float uw0 = g_pUnderWater ? *g_pUnderWater : 0.f; uw0 = uw0 < 0.f ? 0.f : (uw0 > 1.f ? 1.f : uw0);
+        Shadow_SetFrameGlobals(uw0, sv);
         UpdateTimecycStrength();
     }
     if (g_cfg.shadowRetry)
@@ -177,9 +181,10 @@ static void OnFrame()
 
     PSUIStatus st; st.dir = g_dir; st.fxStatus = FX_Status(); st.gameInfo = PS_GAME_INFO; st.patchedShaders = World_PatchedCount();
     st.sunTracked = g_sunTracked; st.lutLoaded = FX_LutLoaded(); st.fx = &FX_Stats();
+    st.scene = &Scene_Stats();
     st.shadow = &Shadow_Stats(); st.shadowTex = Shadow_Texture(); st.shadowReceivers = World_ShadowReceiverCount(); st.build = &World_BuildStats();
     UI_Render(g_cfg, w, h, dt, st);
-    Shadow_EndFrame();                  // replays this frame's captured world draws into the shadow map (own FBO)
+    Shadow_EndFrame();                  // In-shader method: replays the captured world draws into the map. Deferred: that already happened at the after-scene event
     gs.Restore();
     World_BeginFrame(g_cfg, wet);       // after the replay: the new light matrix and the new map become active together
     World_OnShaderSelected();           // push the new uniforms into the shader the game keeps bound (it may not re-select it this frame)
@@ -254,11 +259,48 @@ DECL_HOOKi(RQShader_BuildSource, unsigned flags, const char** pxl, const char** 
     return r;
 }
 
+// ---------------------------------------------------------------- 1.4.3 deferred shadows (the libZyZyGFX64 way, see ps_scene.h)
+// RenderScene() runs on the GAME thread and only records commands; Scene_PostEvent puts our own command before/after it into the render queue,
+// so OnSceneEvent runs on the render thread exactly when the 3D world is finished and nothing 2D is drawn yet.
+static void OnSceneEvent(int ev)
+{
+    if (g_ctx == EGL_NO_CONTEXT || eglGetCurrentContext() != g_ctx) return;
+    if (ev == PS_EV_BEFORE_SCENE) { Scene_OnTargetSelected(); Shadow_BeginScene(); return; }
+    if (ev == PS_EV_AFTER_SCENE && Shadow_AfterSceneNeeded())
+    {
+        PSGLState gs; gs.Save();
+        Shadow_AfterScene();
+        gs.Restore();
+        World_OnShaderSelected();
+    }
+}
+
+DECL_HOOKv(RenderScene, bool b)
+{
+    Scene_PostEvent(PS_EV_BEFORE_SCENE);
+    RenderScene(b);
+    Scene_PostEvent(PS_EV_AFTER_SCENE);
+}
+
+// the game just bound a render target: a big one gets our readable depth texture (same size, same bits) instead of its depth renderbuffer
+DECL_HOOKi(RQ_Command_rqTargetSelect, char** ptr)
+{
+    int r = RQ_Command_rqTargetSelect(ptr);
+    if (Scene_Wanted()) Scene_OnTargetSelected();
+    return r;
+}
+
 // Shadow capture: the stream layout {int mode, int count, uintptr_t offset} was read from the disassembly of rqDrawIndexed (2.00 and 2.10).
 // Recording happens AFTER the original ran, so the GL state (program, buffers, attribute pointers, uniforms) is exactly what the draw used.
 DECL_HOOKi(RQ_Command_rqDrawIndexed, char** ptr)
 {
-    if (!Shadow_WantCapture()) return RQ_Command_rqDrawIndexed(ptr);
+    if (!Shadow_WantCapture())
+    {
+        if (!Shadow_WantCamera()) return RQ_Command_rqDrawIndexed(ptr);
+        int r = RQ_Command_rqDrawIndexed(ptr);
+        Shadow_RecordCamera();          // deferred: this frame's camera (the mask is rebuilt every frame)
+        return r;
+    }
     const char* p = *ptr;
     const int mode = *(const int*)p, count = *(const int*)(p + 4);
     const uintptr_t off = *(const uintptr_t*)(p + 8);
@@ -384,7 +426,8 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
         if (g_cfg.shadows && g_cfg.shadowGuard && access(g_guardPath, F_OK) == 0) { g_guardTripped = true; logger->Info("shadow_guard_v132.txt found: shadows are in SAFE MODE (previous launch did not finish). Menu > DynamicShadows > Retry shadows, then restart."); }
         else if (g_cfg.shadows && g_cfg.shadowGuard) { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("exists while the first minute of shadows has not finished; Retry shadows in the menu or CrashGuard = 0 in " PS_INI_NAME " disables this\n", gf); fclose(gf); g_guardActive = true; } }
         if (g_guardTripped) Shadow_SetGuardFailed(true);
-        World_SetCompileShadows(g_cfg.shadows && !g_guardTripped);
+        // 1.4.3: the patched receivers are only needed by Method = InShader; Deferred leaves the game's shaders alone (like libZyZyGFX64)
+        World_SetCompileShadows(g_cfg.shadows && !g_guardTripped && g_cfg.shadowMethod == 1);
     }
 
     SET_TO(g_pWetRoads,    aml->GetSym(hGame, "_ZN8CWeather8WetRoadsE"));
@@ -407,9 +450,19 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     HOOKSYM(RwCameraSetNearClipPlane, hGame, "_Z24RwCameraSetNearClipPlaneP8RwCameraf");
     if (aml->GetSym(hGame, "_Z23RwCameraSetFarClipPlaneP8RwCameraf")) HOOKSYM(RwCameraSetFarClipPlane, hGame, "_Z23RwCameraSetFarClipPlaneP8RwCameraf");
     if (aml->GetSym(hGame, "_ZN7CEntity6RenderEv")) HOOKSYM(CEntity_Render, hGame, "_ZN7CEntity6RenderEv");
+    Scene_SetHandler(OnSceneEvent);
+    if (Scene_Init(hGame))
+    {
+        if (aml->GetSym(hGame, "_Z11RenderSceneb"))                 HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb");
+        if (aml->GetSym(hGame, "_Z25RQ_Command_rqTargetSelectRPc")) HOOKSYM(RQ_Command_rqTargetSelect, hGame, "_Z25RQ_Command_rqTargetSelectRPc");
+        PS_FileLog("scene: render-queue symbols found, RenderScene %s, rqTargetSelect %s", aml->GetSym(hGame, "_Z11RenderSceneb") ? "hooked" : "MISSING",
+                   aml->GetSym(hGame, "_Z25RQ_Command_rqTargetSelectRPc") ? "hooked" : "MISSING");
+    }
+    else PS_FileLog("%s", Scene_Stats().note);
+    if (g_cfg.worldPatch || g_cfg.shadows)
+        HOOKSYM(RQ_Command_rqDrawIndexed, hGame, "_Z24RQ_Command_rqDrawIndexedRPc");   // free while not capturing, lets Medium/High switch shadows on live
     if (g_cfg.worldPatch)
     {
-        HOOKSYM(RQ_Command_rqDrawIndexed, hGame, "_Z24RQ_Command_rqDrawIndexedRPc");   // always: free while not capturing, lets Medium/High switch shadows on live
         HOOKSYM(ES2Shader_Build,          hGame, "_ZN9ES2Shader5BuildEPKcS1_");        // installed before the source hook: nothing patched may reach the game untested
         HOOKSYM(RQShader_BuildSource,     hGame, "_ZN8RQShader11BuildSourceEjPPKcS2_");
         HOOKSYM(RQ_Command_rqSelectShader, hGame, "_Z25RQ_Command_rqSelectShaderRPc");

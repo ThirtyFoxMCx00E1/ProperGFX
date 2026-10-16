@@ -43,7 +43,8 @@ void PSGLState::Save()
     glGetIntegerv(GL_BLEND_EQUATION_RGB, &bEqRGB); glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &bEqA);
     glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
     glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
-    glGetFloatv(GL_COLOR_CLEAR_VALUE, clearColor);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, clearColor); glGetFloatv(GL_DEPTH_CLEAR_VALUE, &clearDepth);
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFunc); glGetIntegerv(GL_CULL_FACE_MODE, &cullMode); glGetIntegerv(GL_FRONT_FACE, &frontFace);
     glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpackAlign);
     vao = 0;
     if (s_vaoSupported) { glGetIntegerv(0x85B5 /*GL_VERTEX_ARRAY_BINDING(_OES)*/, &vao); if (vao && s_bindVao) s_bindVao(0); }
@@ -81,7 +82,8 @@ void PSGLState::Restore()
     glBlendEquationSeparate(bEqRGB, bEqA);
     glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
     glDepthMask(depthMask);
-    glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+    glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]); glClearDepthf(clearDepth);
+    glDepthFunc(depthFunc); glCullFace(cullMode); glFrontFace(frontFace);
     glPixelStorei(GL_UNPACK_ALIGNMENT, unpackAlign);
     for (int i = 0; i < NATTR; ++i)
     {

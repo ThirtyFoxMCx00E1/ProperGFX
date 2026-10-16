@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.4.2"
+#define PS_VERSION     "1.4.3"
 #define PS_DIR_NAME    "ProperGFX"              // files/ProperGFX (1.3 and older: files/ProperShader, moved automatically)
 #define PS_INI_NAME    "TYFMC.ProperGFX.ini"    // 1.3 and older: settings.ini (renamed automatically)
 #define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)
@@ -106,6 +106,8 @@ struct PSSettings
     float nearClip     = 0.30f;
     // ---- [DynamicShadows] sun shadow map (buildings, trees, vehicles cast onto the world) ----
     bool  shadows      = true;
+    int   shadowMethod = 0;          // 0 = Deferred (screen-space mask from the scene depth, the libZyZyGFX64 way), 1 = In-shader (1.4.2 receivers)
+    bool  shadowMaskHalf = false;    // deferred: build the mask at half resolution (faster, slightly softer edges)
     float shadowStrength = 0.55f;
     int   shadowRes    = 1;          // 0 = 512, 1 = 1024, 2 = 2048
     float shadowDist   = 80.f;       // metres around the camera covered by the map
@@ -147,6 +149,7 @@ extern const char* const PS_GradeNames[];   extern const int PS_GradeCount;
 extern const char* const PS_TonemapNames[]; extern const int PS_TonemapCount;
 extern const char* const PS_TimeNames[];    extern const int PS_TimeCount;
 extern const char* const PS_SunSourceNames[]; extern const int PS_SunSourceCount;
+extern const char* const PS_ShadowMethodNames[]; extern const int PS_ShadowMethodCount;
 // [LUT] Folders -> the directory LUT_Load searches (base = files/ProperGFX)
 void PS_LutDir(const PSSettings& s, const char* base, char* out, int n);
 extern const char* const PS_DofModeNames[];   extern const int PS_DofModeCount;
