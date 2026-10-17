@@ -15,6 +15,7 @@ struct PSShadowStats
     int   rejBlend = 0, rejNoDepthWrite = 0, rejNoIndexBuffer = 0, rejVertexFormat = 0, rejNoShaderInfo = 0, rejMode = 0, rejDistance = 0, rejStale = 0;
     float sunDir[3] = {0, 0, 1};   // direction toward the sun that the map was rendered with
     int   sunSource = 0;           // 1 = game time-cycle sun vector, 2 = directional-light uniform
+    int   camSource = 0, camRejected = 0;   // 1.4.7: 1 CameraPosition, 2 view + TheCamera, 3 last frame; views rejected (sky / mirror / other cameras)
     int   cacheSize = 0, cacheKept = 0, otherTargets = 0;   // casters remembered from earlier frames / kept this frame although the game culled them / draws into other render targets (ignored)
     bool  guardTripped = false;
     float timecycMul = 1.f; int timecycRaw = -1, timecycMax = 0; bool timecycValid = false;   // timecyc.dat 'Shdw' value for the current hour/weather
@@ -35,6 +36,8 @@ void   Shadow_EndFrame();
 // (RQ_Command_rqSetAlphaTest statics curFunc / curVal) and buffer writes seen by the GOT hooks on libGTASA's GL imports
 void   Shadow_SetDrawKind(int kind);
 void   Shadow_SetAlphaTestState(const int* func, const float* ref);
+// 1.4.7: the game's TheCamera (CCamera) - views are only trusted within 5 m of its position (libZyZGFX64's check)
+void   Shadow_SetGameCamera(const void* theCamera);
 void   Shadow_SetBufferTracking(bool on);
 void   Shadow_OnBufferWrite(GLenum target);                    // glBufferData / glBufferSubData / glMapBufferRange(write) by the game
 void   Shadow_OnBufferDelete(GLsizei n, const GLuint* ids);    // glDeleteBuffers by the game

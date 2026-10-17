@@ -547,13 +547,8 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     if (!fi) { if (G.fbos.size() >= 8) return; G.fbos.emplace_back(); fi = &G.fbos.back(); fi->id = fb; }
     ++fi->n;
     if (!fi->haveCam && pi.cam >= 0) { glGetUniformfv((GLuint)prog, pi.cam, fi->cam); fi->haveCam = true; }
-    if (!fi->haveVP && pi.view >= 0 && pi.proj >= 0) { glGetUniformfv((GLuint)prog, pi.view, fi->view); glGetUniformfv((GLuint)prog, pi.proj, fi->proj); fi->haveVP = true; }
-    if (!fi->haveCam && fi->haveVP)
-    {   // no CameraPosition uniform seen yet: camera = inverse of the (rigid) view matrix
-        const float* v = fi->view;
-        for (int i = 0; i < 3; ++i) fi->cam[i] = -(v[i * 4 + 0] * v[12] + v[i * 4 + 1] * v[13] + v[i * 4 + 2] * v[14]);
-        fi->haveCam = isfinite(fi->cam[0]) && isfinite(fi->cam[1]) && isfinite(fi->cam[2]);
-    }
+    if (!fi->haveVP && pi.cam >= 0 && pi.view >= 0 && pi.proj >= 0) { glGetUniformfv((GLuint)prog, pi.view, fi->view); glGetUniformfv((GLuint)prog, pi.proj, fi->proj); fi->haveVP = true; }
+    // 1.4.7: the camera only from CameraPosition (1.4.6 derived it from the first view matrix - the sky has one without translation)
 
     Draw d;
     d.fbo = fb;

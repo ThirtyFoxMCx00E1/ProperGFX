@@ -44,6 +44,14 @@ static const char* kGameFS =
 "void main()\n{\nlowp vec4 fcolor;\nlowp vec4 diffuseColor = texture2D(Diffuse, Out_Tex0);\nfcolor = diffuseColor;\nfcolor *= Out_Color;\n"
 "fcolor.xyz = mix(fcolor.xyz, FogColor, Out_FogAmt);\ngl_FragColor = fcolor;\n/*ATBEGIN*/\nif (diffuseColor.a < 0.5) { discard; }\n/*ATEND*/\ngl_FragColor.a *= AlphaModulate;\n}\n";
 
+// the game's sky / cloud shaders: no CameraPosition, and a view matrix WITHOUT the camera translation (sky centred on the camera)
+static const char* kSkyVS =
+"precision highp float;\n"
+"attribute vec3 Position;\n"
+"uniform mat4 ProjMatrix;\nuniform mat4 ViewMatrix;\nuniform mat4 ObjMatrix;\n"
+"void main() { gl_Position = ProjMatrix * (ViewMatrix * (ObjMatrix * vec4(Position, 1.0))); }\n";
+static const char* kSkyFS = "precision mediump float;\nvoid main() { gl_FragColor = vec4(0.55, 0.7, 0.95, 1.0); }\n";
+
 static const char* kGameVSUnlit =
 "precision highp float;\n"
 "attribute vec3 Position;\nattribute vec2 TexCoord0;\n"
@@ -219,6 +227,11 @@ int main()
     });
     PSSettings st; st.shadowMethod = 0; st.shadowEvery = 1; st.shadowStrength = 0.6f; st.shadowRes = 2; st.shadowDist = 60.f; st.sunSmoothing = 1.0f; st.shadowTint = 0.f;
     bool shadowsOn = true;
+    // 1.4.7: the sky is drawn first into the scene target, like in the game
+    GLuint skyProg = BuildProgram(kSkyVS, kSkyFS, "sky shader (no CameraPosition)");
+    bool skyOn = false;
+    float skyView[16], skyProj[16]; memcpy(skyView, view, sizeof(skyView)); skyView[12] = skyView[13] = skyView[14] = 0.f;
+    Perspective(skyProj, 0.80f, (float)W / H, 1.0f, 3000.f);
     auto frame = [&](const float sun[3]) {
         PSSettings cur = st; cur.shadows = shadowsOn;
         Shadow_Configure(cur, 0); Shadow_SetSunHint(sun, true); Scene_SetScreenSize(W, H);
@@ -227,6 +240,20 @@ int main()
         Scene_RunEventForTest(PS_EV_BEFORE_SCENE);
         glViewport(0, 0, W, H); glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glDisable(GL_BLEND); glDisable(GL_CULL_FACE);
         glClearColor(0.55f, 0.7f, 0.95f, 1.f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        if (skyOn)
+        {
+            glUseProgram(skyProg); glDepthMask(GL_FALSE);
+            auto U = [&](const char* nme) { return glGetUniformLocation(skyProg, nme); };
+            const float ident[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+            glUniformMatrix4fv(U("ProjMatrix"), 1, GL_FALSE, skyProj); glUniformMatrix4fv(U("ViewMatrix"), 1, GL_FALSE, skyView); glUniformMatrix4fv(U("ObjMatrix"), 1, GL_FALSE, ident);
+            glBindBuffer(GL_ARRAY_BUFFER, scene[0].vbo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, scene[0].ibo);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(V), (void*)0); glEnableVertexAttribArray(0);
+            glDisableVertexAttribArray(1); glDisableVertexAttribArray(2);
+            glDrawElements(GL_TRIANGLES, scene[0].count, GL_UNSIGNED_SHORT, (void*)0);
+            if (Shadow_WantCapture()) Shadow_RecordDraw(0, scene[0].count, 0);
+            else if (Shadow_WantCamera()) Shadow_RecordCamera();
+            glDepthMask(GL_TRUE);
+        }
         for (size_t mi = 0; mi < scene.size(); ++mi)
         {
             const Mesh& m = scene[mi];
@@ -351,6 +378,21 @@ int main()
         printf("      10 frames (update every 2): behind house %.1f..%.1f, foliage %.1f..%.1f\n", mn, mx, ln, lx);
         CHECK(mx - mn < 1.5f && lx - ln < 1.5f && mx / at(without, pShadow) < 0.62f, "shadows are steady from frame to frame (no flicker)");
         st.shadowEvery = 1;
+        // F (1.4.7 regression): the sky - no CameraPosition, view without translation - is the first draw of the frame
+        skyOn = true; for (int f = 0; f < 4; ++f) frame(sun); grab(fr);
+        const float f0 = at(fr, pShadow) / at(without, pShadow), f1 = at(fr, pLit) / at(without, pLit);
+        printf("      sky drawn first: behind house %.2f, open ground %.2f\n", f0, f1);
+        CHECK(f0 < 0.62f && f1 > 0.97f, "sky drawn first, no TheCamera: only CameraPosition shaders give the camera (shadows stay)");
+        // with the game's TheCamera (CPlaceable: matrix pointer at +0x18, position at +0x30), like libZyZGFX64
+        static char s_cam[0x40]; static float s_mat[16]; memset(s_cam, 0, sizeof(s_cam)); memset(s_mat, 0, sizeof(s_mat));
+        s_mat[12] = eye[0]; s_mat[13] = eye[1]; s_mat[14] = eye[2]; *(float**)(s_cam + 0x18) = s_mat;
+        Shadow_SetGameCamera(s_cam);
+        for (int f = 0; f < 4; ++f) frame(sun); grab(fr);
+        const float g0 = at(fr, pShadow) / at(without, pShadow), g1 = at(fr, pLit) / at(without, pLit);
+        printf("      sky drawn first + TheCamera: behind house %.2f, open ground %.2f, camera source %d, rejected %d\n", g0, g1, Shadow_Stats().camSource, Shadow_Stats().camRejected);
+        CHECK(g0 < 0.62f && g1 > 0.97f && Shadow_Stats().camRejected >= 1, "the sky's view (no translation) is rejected against TheCamera, the mask stays in place");
+        Shadow_SetGameCamera(nullptr);
+        skyOn = false;
     }
     // ---- render queue: our command goes through the game's own command table, between the game's commands
     {

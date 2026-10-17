@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.7 (hotfix)
+* 64-bit: no shadows at all in 1.4.6 ("ok (deferred)", casters rendered, but nothing on screen). 1.4.6 took the camera for the shadow mask from the FIRST draw of the frame, even from shaders without `CameraPosition`. The sky / clouds are drawn first with a view matrix without the camera translation, so the mask rebuilt every pixel far away from where it is and no shadow landed anywhere.
+* Fix, the libZyZGFX64 way: a view is only used when it is a perspective view whose camera lies within 5 m of the game's `TheCamera` position (matrix at +0x18, position at +0x30). Without `TheCamera`, only shaders with `CameraPosition` are used (like 1.4.5). A frame without a valid view reuses the last one for up to 2 frames instead of blinking.
+* Menu status shows the camera source and how many other views (sky, mirror, reflections) were rejected.
+* 32-bit: the same view-matrix fallback from 1.4.6 is removed (camera only from `CameraPosition`).
+
 ## 1.4.6
 * 64-bit shadows are always Deferred (the ZyZGFX64 way). The in-shader (1.4.2) method and the Method combo are removed.
 * Tree shadows have the leaf shape: blended + alpha-tested draws (SA foliage) now cast, cut out with the game's alpha-test reference (`RQ_Command_rqSetAlphaTest` state). 1.4.5 dropped every blended draw, so trees cast only a trunk / LOD box.

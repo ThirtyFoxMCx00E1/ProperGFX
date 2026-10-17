@@ -52,6 +52,7 @@ struct Deferred
     float lvp[2][16]; float R[2] = {0, 0}; bool mapReady[2] = {false, false};
     uint32_t captures = 0, applied = 0, missedCam = 0, missedDepth = 0;
     FrameCam cam;
+    FrameCam lastCam; uint32_t lastCamFrame = 0;   // 1.4.7: last accepted camera (a frame without one reuses it instead of blinking)
     bool sceneDone = false;
     float underwater = 0.f, sunVector[3] = {0, 0, 1};
 };
@@ -85,6 +86,46 @@ struct ShadowState
     PSShadowStats stats;
 };
 ShadowState G;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 1.4.7 camera validation, the libZyZGFX64 way ("camera rejected: ... no TheCamera, view > 10 m from TheCamera"):
+// a view matrix is only trusted when it is a perspective view whose camera (-R^T t) sits within 5 m of the game's
+// TheCamera position (CPlaceable::m_matrix at +0x18, position at +0x30). 1.4.6 took the first draw's matrices - the sky /
+// clouds come first with a view WITHOUT translation, so the mask rebuilt every pixel ~the camera distance from the origin
+// away = no shadow anywhere.
+const char* g_theCamera = nullptr;
+bool GameCamPos(float out[3])
+{
+    if (!g_theCamera) return false;
+    const char* m = *(const char* const*)(g_theCamera + 0x18);
+    if (!m) return false;
+    const float* p = (const float*)(m + 0x30);
+    if (!(isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]))) return false;
+    if (fabsf(p[0]) > 1e5f || fabsf(p[1]) > 1e5f || fabsf(p[2]) > 1e5f) return false;
+    out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
+    return true;
+}
+void ViewCam(const float* v, float c[3]) { for (int i = 0; i < 3; ++i) c[i] = -(v[i * 4 + 0] * v[12] + v[i * 4 + 1] * v[13] + v[i * 4 + 2] * v[14]); }
+bool IsPerspective(const float* p) { return fabsf(fabsf(p[11]) - 1.f) <= 0.01f && fabsf(p[15]) <= 0.01f; }
+// 0 = reject; 1 = CameraPosition uniform; 2 = view matrix checked against TheCamera
+int ValidCamera(const float* view, const float* proj, bool haveCamUniform, const float camUniform[3], float out[3])
+{
+    if (!IsPerspective(proj)) return 0;
+    float vc[3]; ViewCam(view, vc);
+    if (!(isfinite(vc[0]) && isfinite(vc[1]) && isfinite(vc[2]))) return 0;
+    float tc[3];
+    if (GameCamPos(tc))
+    {
+        const float dx = vc[0] - tc[0], dy = vc[1] - tc[1], dz = vc[2] - tc[2];
+        if (dx * dx + dy * dy + dz * dz > 25.f) return 0;                  // another camera (sky, mirror, reflection, ped shadow)
+        if (haveCamUniform) { memcpy(out, camUniform, 12); return 1; }
+        memcpy(out, vc, 12); return 2;
+    }
+    if (!haveCamUniform) return 0;                                          // no TheCamera: only shaders with CameraPosition (1.4.5)
+    const float dx = vc[0] - camUniform[0], dy = vc[1] - camUniform[1], dz = vc[2] - camUniform[2];
+    if (dx * dx + dy * dy + dz * dz > 25.f) return 0;                       // the view does not belong to that camera
+    memcpy(out, camUniform, 12); return 1;
+}
 
 // ---- 1.4.6 buffer generations: a cached caster is only valid while the game has not rewritten / freed its buffers.
 // The game streams models in and out and re-uses GL buffer names (and refills dynamic buffers every frame); replaying a draw from
@@ -208,6 +249,8 @@ void Commit()
     if (!main) return;
     for (const FboInfo& f : G.fbos) if (&f != main) G.stats.otherTargets += f.n;
     if (main->haveCam) { memcpy(G.cam, main->cam, sizeof(G.cam)); G.haveCam = true; }
+    else if (G.def.cam.ok) { memcpy(G.cam, G.def.cam.cam, sizeof(G.cam)); G.haveCam = true; }
+    else if (GameCamPos(G.cam)) G.haveCam = true;
     ++G.captureId;
     // no tags at all for a while (CEntity::Render not hooked / render queue full): fall back to the old guess, stricter
     if (G.taggedThisCapture == 0) { if (G.capturesWithoutTags < 1000) ++G.capturesWithoutTags; } else G.capturesWithoutTags = 0;
@@ -681,6 +724,7 @@ void Shadow_Configure(const PSSettings& s, int level)
 bool Shadow_Deferred() { return true; }
 
 void Shadow_SetDrawKind(int kind) { G.kind = kind; }
+void Shadow_SetGameCamera(const void* theCamera) { g_theCamera = (const char*)theCamera; }
 void Shadow_SetAlphaTestState(const int* func, const float* ref) { G.atFunc = func; G.atRef = ref; }
 void Shadow_SetBufferTracking(bool on) { G.bufTracking = on; }
 void Shadow_OnBufferWrite(GLenum target)
@@ -716,21 +760,21 @@ void Shadow_RecordCamera()
     GLuint dt = 0; int w = 0, h = 0;
     if (!Scene_DepthOf(fb, dt, w, h)) return;                                           // not the scene target (ped shadows, reflections)
     FrameCam& c = G.def.cam;
-    glGetUniformfv((GLuint)prog, pi.view, c.view); glGetUniformfv((GLuint)prog, pi.proj, c.proj);
-    if (pi.cam >= 0) glGetUniformfv((GLuint)prog, pi.cam, c.cam);
-    else
-    {   // 1.4.6: no CameraPosition in this shader - the camera is the inverse of the view matrix (rigid: -R^T t). 1.4.5 waited for a shader
-        // that had it, and a frame where none came had NO shadow mask at all = shadows blinking off and on
-        const float* v = c.view;
-        for (int i = 0; i < 3; ++i) c.cam[i] = -(v[i * 4 + 0] * v[12] + v[i * 4 + 1] * v[13] + v[i * 4 + 2] * v[14]);
-    }
-    if (!(isfinite(c.cam[0]) && isfinite(c.cam[1]) && isfinite(c.cam[2]))) return;
+    float view[16], proj[16], cu[3] = {0, 0, 0}, cam[3];
+    glGetUniformfv((GLuint)prog, pi.view, view); glGetUniformfv((GLuint)prog, pi.proj, proj);
+    if (pi.cam >= 0) glGetUniformfv((GLuint)prog, pi.cam, cu);
+    const int src = ValidCamera(view, proj, pi.cam >= 0, cu, cam);
+    if (!src) { ++G.stats.camRejected; return; }
+    memcpy(c.view, view, sizeof(view)); memcpy(c.proj, proj, sizeof(proj)); memcpy(c.cam, cam, sizeof(cam));
+    G.stats.camSource = src;
     c.haveFog = pi.fog >= 0; if (c.haveFog) glGetUniformfv((GLuint)prog, pi.fog, c.fog);
     c.fbo = fb; c.ok = true;
+    G.def.lastCam = c; G.def.lastCamFrame = G.frame;
 }
 
 void Shadow_BeginScene()
 {
+    G.stats.camRejected = 0;
     G.def.cam.ok = false; G.def.sceneDone = false; G.kind = 0;
 }
 
@@ -753,6 +797,7 @@ void Shadow_AfterScene()
     }
     else if (!UpdateSun()) return;                       // sun under the horizon: no mask
     if (G.fade <= 0.001f) return;
+    if (!D.cam.ok && D.lastCam.ok && G.frame - D.lastCamFrame <= 2) { D.cam = D.lastCam; G.stats.camSource = 3; }   // reuse, do not blink
     if (!D.cam.ok) { ++D.missedCam; if (D.missedCam % 300 == 1) Note("no camera seen in the scene target this frame"); return; }
     GLuint dt = 0; int w = 0, h = 0;
     GLint target = D.cam.fbo;
@@ -832,13 +877,13 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     for (FboInfo& f : G.fbos) if (f.id == fb) { fi = &f; break; }
     if (!fi) { if (G.fbos.size() >= 8) return; G.fbos.emplace_back(); fi = &G.fbos.back(); fi->id = fb; }
     ++fi->n;
-    if (!fi->haveCam && pi.cam >= 0) { glGetUniformfv((GLuint)prog, pi.cam, fi->cam); fi->haveCam = true; }
-    if (!fi->haveVP && pi.view >= 0 && pi.proj >= 0) { glGetUniformfv((GLuint)prog, pi.view, fi->view); glGetUniformfv((GLuint)prog, pi.proj, fi->proj); fi->haveVP = true; }
-    if (!fi->haveCam && fi->haveVP)
-    {   // no CameraPosition uniform seen yet: the camera from the view matrix (see Shadow_RecordCamera)
-        const float* v = fi->view;
-        for (int i = 0; i < 3; ++i) fi->cam[i] = -(v[i * 4 + 0] * v[12] + v[i * 4 + 1] * v[13] + v[i * 4 + 2] * v[14]);
-        fi->haveCam = isfinite(fi->cam[0]) && isfinite(fi->cam[1]) && isfinite(fi->cam[2]);
+    if (!fi->haveCam && pi.view >= 0 && pi.proj >= 0)
+    {   // 1.4.7: camera + view of this target only from a validated main camera (see ValidCamera)
+        float view[16], proj[16], cu[3] = {0, 0, 0}, cam[3];
+        glGetUniformfv((GLuint)prog, pi.view, view); glGetUniformfv((GLuint)prog, pi.proj, proj);
+        if (pi.cam >= 0) glGetUniformfv((GLuint)prog, pi.cam, cu);
+        if (ValidCamera(view, proj, pi.cam >= 0, cu, cam))
+        { memcpy(fi->view, view, sizeof(view)); memcpy(fi->proj, proj, sizeof(proj)); memcpy(fi->cam, cam, sizeof(cam)); fi->haveCam = fi->haveVP = true; }
     }
 
     Draw d;

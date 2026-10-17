@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.6, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Proper GFX Mobile (v1.4.7, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -38,7 +38,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.6, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.7, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -143,7 +143,7 @@ static void OnFrame()
     g_renderThread = pthread_self(); g_haveRenderThread = true;
     FlushPendingBufferWrites();
     {   // gameplay = the game rendered its 3D world in the last few frames and the pause menu is not open.
-        // Post effects, the floating button / menu and the shadows only run in gameplay (1.4.6: they were also drawn over the main menu)
+        // Post effects, the floating button / menu and the shadows only run in gameplay (1.4.7: they were also drawn over the main menu)
         const unsigned sc = g_sceneCalls.load(std::memory_order_relaxed);
         if (sc != g_sceneSeen) { g_sceneSeen = sc; g_noSceneFrames = 0; } else if (g_noSceneFrames < 1000) ++g_noSceneFrames;
         const bool paused = g_pUserPause && *g_pUserPause;
@@ -155,7 +155,7 @@ static void OnFrame()
     PS_UpdateLive(g_cfg, nf);
     float wet = g_pWetRoads ? *g_pWetRoads : 0.f;
     World_SetEnabled(g_cfg.enabled);
-    g_cfg.shadowMethod = 0;                 // 1.4.6: always Deferred (like libZyZGFX64)
+    g_cfg.shadowMethod = 0;                 // 1.4.7: always Deferred (like libZyZGFX64)
     Shadow_Configure(g_cfg, FX_Stats().adaptiveLevel);
     Scene_SetScreenSize(w, h);
     {   // the game's own sun vector (points TOWARD the sun, world space, z up) - the same vector the sun disc / coronas use
@@ -353,7 +353,7 @@ DECL_HOOKp(RwCameraSetFarClipPlane, void* cam, float farPlane)
 }
 
 // EntityModel: same as SAShaderL - remember the model of the entity being rendered (CEntity::m_nModelIndex, int16 at 0x32 on arm64)
-// 1.4.6 shadow tags (the libZyZGFX64 way, GTA SA 2.10 arm64 layout): CEntity +0x20 m_pRwObject, +0x32 m_nModelIndex, +0x58 m_nNumLodChildren
+// 1.4.7 shadow tags (the libZyZGFX64 way, GTA SA 2.10 arm64 layout): CEntity +0x20 m_pRwObject, +0x32 m_nModelIndex, +0x58 m_nNumLodChildren
 // (non-zero = a LOD stand-in), +0x5a type in bits 0..2 (1 building, 2 vehicle, 3 ped, 4 object); CBaseModelInfo +0x2c flags & 0x7800 = 0x800 / 0x1000: tree / palm.
 // The kind is put into the render queue before the entity's draws and cleared after them, so the shadow capture on the render thread knows
 // what it records: static buildings / trees may be remembered, LOD stand-ins never cast near the camera, everything else casts only while drawn.
@@ -602,7 +602,7 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
         PS_FileLog("---- launch: Proper GFX Mobile " PS_VERSION " (%d-bit) ----", PS_BITS);
         if (g_cfg.shadows && g_cfg.shadowGuard && access(g_guardPath, F_OK) == 0) { g_guardTripped = true; logger->Info("shadow_guard_v145.txt found: shadows are in SAFE MODE (previous launch did not finish). Menu > DynamicShadows > Retry shadows."); PS_FileLog("shadows: SAFE MODE (shadow_guard_v145.txt from the previous launch)"); }
         if (g_guardTripped) Shadow_SetGuardFailed(true);
-        // 1.4.6: always Deferred - the game's shaders never get the 1.4.2 shadow receivers (like libZyZGFX64)
+        // 1.4.7: always Deferred - the game's shaders never get the 1.4.2 shadow receivers (like libZyZGFX64)
         g_cfg.shadowMethod = 0;
         World_SetCompileShadows(false);
     }
@@ -623,6 +623,7 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pTimeMs,      aml->GetSym(hGame, "_ZN6CTimer22m_snTimeInMillisecondsE"));
     SET_TO(g_pModelInfo,   aml->GetSym(hGame, "_ZN10CModelInfo16ms_modelInfoPtrsE"));
     SET_TO(g_pUserPause,   aml->GetSym(hGame, "_ZN6CTimer11m_UserPauseE"));
+    Shadow_SetGameCamera((const void*)aml->GetSym(hGame, "TheCamera"));
     Shadow_SetAlphaTestState((const int*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc"),
                              (const float*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE6curVal"));
     PS_FileLog("shadows: alpha-test state %s, model info %s, user pause %s", aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc") ? "found" : "MISSING",

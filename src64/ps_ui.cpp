@@ -256,6 +256,10 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
                         (st.fx && st.fx->adaptiveLevel >= 2) ? "   (adaptive quality: slower updates, half-res mask)" : "");
             ImGui::Text("Casters: %d captured, %d rendered, %d skipped", sh.captured, sh.replayed, sh.rejected);
             ImGui::Text("Remembered: %d casters (%d kept although out of view), %d draws into other targets ignored", sh.cacheSize, sh.cacheKept, sh.otherTargets);
+            {
+                static const char* kCam[4] = { "none", "CameraPosition", "view matrix + TheCamera", "last frame (reused)" };
+                ImGui::Text("Camera: %s, %d other views rejected (sky / mirror / reflections)", kCam[sh.camSource & 3], sh.camRejected);
+            }
             if (st.scene)
             {
                 const PSSceneStats& sc = *st.scene;
