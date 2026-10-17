@@ -281,6 +281,8 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
             ImGui::Text("Sun (%.2f %.2f %.2f) from %s", sh.sunDir[0], sh.sunDir[1], sh.sunDir[2], sh.sunSource == 1 ? "time cycle" : (sh.sunSource == 2 ? "light uniform" : "-"));
             ImGui::TextDisabled("skipped: blend %d, no depth write %d, no index buf %d, vertex fmt %d, shader %d, mode %d, far %d, stale %d",
                                 sh.rejBlend, sh.rejNoDepthWrite, sh.rejNoIndexBuffer, sh.rejVertexFormat, sh.rejNoShaderInfo, sh.rejMode, sh.rejDistance, sh.rejStale);
+            ImGui::TextDisabled("not objects (clouds / water / effects) %d, LOD %d; entity tags %s, buffer tracking %s (%u writes)",
+                                sh.rejUntagged, sh.rejLod, sh.tagsOn ? "on" : "MISSING", sh.bufTracked ? "on" : "off", (unsigned)sh.bufWrites);
             if (sh.guardTripped || (sh.note[0] && strstr(sh.note, "SAFE MODE")))
                 if (ImGui::Button("Retry shadows (picking Medium / High does this too)")) s.shadowRetry = true;
         }

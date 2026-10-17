@@ -570,7 +570,10 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     }
     d.alphaRef = alphaRef;
     d.vboGen = BufGen(d.pos.vbo); d.iboGen = BufGen(d.ibo); d.uvGen = d.uv.vbo ? BufGen(d.uv.vbo) : 0;
-    d.cacheable = !BufHot(d.pos.vbo) && !BufHot(d.ibo);                 // dynamic / streaming buffers are never remembered
+    // 1.4.8: buffers the game refills again and again (immediate-mode: clouds, water, effects, game shadow polygons) never cast -
+    // replayed later they hold other geometry = big shadows from nothing
+    if (BufHot(d.pos.vbo) || BufHot(d.ibo)) { ++G.stats.rejected; ++G.stats.rejStale; return; }
+    d.cacheable = true;
     G.draws.push_back(d);
 }
 

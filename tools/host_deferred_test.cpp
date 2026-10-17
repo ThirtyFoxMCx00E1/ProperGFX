@@ -370,6 +370,11 @@ int main()
         kind[4] = PS_KIND_LODTREE; visible[4] = 1; for (int f = 0; f < 3; ++f) frame(sun); const float d0 = kioskShade();
         printf("      kiosk (LOD tree): %.2f\n", d0);
         CHECK(d0 > 0.97f, "LOD tree boxes cast no shadow");
+        kind[4] = PS_KIND_LOD; for (int f = 0; f < 3; ++f) frame(sun); const float d1 = kioskShade();
+        kind[4] = PS_KIND_NONE; for (int f = 0; f < 3; ++f) frame(sun); const float d2 = kioskShade();
+        printf("      kiosk as LOD building %.2f, as untagged draw (cloud / water / effect) %.2f\n", d1, d2);
+        CHECK(d1 > 0.97f, "1.4.8: LOD stand-ins cast no shadow (no huge shadows from LOD terrain / buildings)");
+        CHECK(d2 > 0.97f, "1.4.8: draws not made by an object (clouds, water, effects, immediate-mode buffers) cast nothing");
         visible[4] = 0; kind[4] = PS_KIND_BUILDING; for (int f = 0; f < 3; ++f) frame(sun);
         // E: stable scene, update every 2nd frame: the mask is identical every frame (no on/off flicker)
         st.shadowEvery = 2;

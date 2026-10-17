@@ -350,7 +350,7 @@ bool UpdateSun()
     const float elev = G.sun[2];
     G.stats.sunElevation = elev;
     memcpy(G.stats.sunDir, G.sun, sizeof(G.sun));
-    G.fade = Smooth(G.s.shadowMinSun, G.s.shadowMinSun + 0.10f, elev);
+    G.fade = Smooth(G.s.shadowMinSun, G.s.shadowMinSun + 0.15f, elev);   // 1.4.8: longer fade at dusk
     G.stats.fade = G.fade;
     if (G.fade <= 0.001f) { Note("sun below the horizon - shadows off"); return false; }
     return true;
@@ -610,6 +610,7 @@ void DefRenderCascades()
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     ++D.captures;
     if (errs > 8) { if (++G.glErrors > 3) { G.failed = true; Note("GL errors while rendering the shadow cascades - shadows disabled"); } }
+    G.stats.bufWrites = G.bufWrites; G.stats.bufTracked = G.bufTracking; G.stats.tagsOn = !G.legacyCache;
     G.stats.replayed = drawn; G.stats.rejected += rej; G.stats.resolution = res; G.stats.cacheKept = fromCache;
     G.stats.cpuMs = (float)(NowMs() - t0);
     if (G.logTick++ % 120 == 0)
@@ -830,7 +831,13 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     if ((mode != 0 && mode != 1) || count < 3) { ++G.stats.rejected; ++G.stats.rejMode; return; }   // 0 = triangle list, 1 = strip (game's own primitive ids)
     const int kind = G.kind;
     if (kind != PS_KIND_NONE) ++G.taggedThisCapture;
-    if (kind == PS_KIND_LODTREE) { ++G.stats.rejected; return; }                       // LOD tree boxes never cast
+    // 1.4.8: LOD stand-ins never cast. They are coarse copies that sit slightly above / around the real terrain and buildings,
+    // so in the far cascade they shaded whole areas ("huge shadows from nothing"); LOD tree boxes never had a leaf shape.
+    if (kind == PS_KIND_LODTREE || kind == PS_KIND_LOD) { ++G.stats.rejected; ++G.stats.rejLod; return; }
+    // 1.4.8: with the entity tags working, ONLY draws made by an object (CEntity::Render) cast. Everything else - clouds, sky,
+    // water, rain, particles, coronas, the game's own shadow polygons, skid marks - comes from the game's shared immediate-mode
+    // buffers that are refilled many times per frame: replayed after the scene they held other geometry = big random shadows.
+    if (kind == PS_KIND_NONE && !G.legacyCache) { ++G.stats.rejected; ++G.stats.rejUntagged; return; }
     GLint prog = 0; glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
     if (!prog) return;
     // 1.4.6: only draws into the game's SCENE target (the one with our depth texture): ped-shadow / reflection / mirror passes
@@ -851,6 +858,7 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     if (blend)
     {
         if (!(at || pi.discard || (!G.atFunc && !pi.srcKnown))) { ++G.stats.rejected; ++G.stats.rejBlend; return; }     // translucent without a cut-out: glass, water, effects
+        if (kind == PS_KIND_NONE) { ++G.stats.rejected; ++G.stats.rejBlend; return; }                                    // blended + not an object: an effect
         alphaRef = fmaxf(at ? ref : 0.f, 0.5f);                                                                          // half-transparent glass does not cast
     }
     else if (at && ref > 0.004f) alphaRef = fmaxf(ref, 0.01f);
@@ -938,7 +946,7 @@ void Shadow_EndFrame()
     int every = G.s.shadowEvery * (G.level >= 3 ? 3 : (G.level >= 2 ? 2 : 1));
     if (every < 1) every = 1;
     G.capturing = (G.frame % (uint32_t)every) == 0;
-    if (G.capturing) { G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.haveCam = G.haveDir = false; G.stats.rejected = 0; G.stats.otherTargets = 0; G.stats.rejBlend = G.stats.rejNoDepthWrite = G.stats.rejNoIndexBuffer = G.stats.rejVertexFormat = G.stats.rejNoShaderInfo = G.stats.rejMode = G.stats.rejDistance = G.stats.rejStale = 0; }
+    if (G.capturing) { G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.haveCam = G.haveDir = false; G.stats.rejected = 0; G.stats.otherTargets = 0; G.stats.rejBlend = G.stats.rejNoDepthWrite = G.stats.rejNoIndexBuffer = G.stats.rejVertexFormat = G.stats.rejNoShaderInfo = G.stats.rejMode = G.stats.rejDistance = G.stats.rejStale = G.stats.rejUntagged = G.stats.rejLod = 0; }
 }
 
 void Shadow_Uniforms(float lightVP[16], float params[4])

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.8
+* 64-bit: big shadows that no object casts ("ghost shadows everywhere"):
+  * only draws made by an object (`CEntity::Render` tags) cast. Clouds, sky, water, rain, particles, coronas, skid marks and the game's own shadow polygons come from shared immediate-mode buffers that are refilled many times a frame; replayed after the scene they held other geometry and cast random big shadows.
+  * LOD stand-ins never cast (also not in the far cascade): they sit slightly above / around the real terrain and buildings and shaded whole areas.
+  * a surface facing away from the sun is only darkened as a whole when the sun is reasonably high (elevation 0.15-0.35 fade in). With a low sun every gentle slope turned away went dark = hillsides and roads in shadow with nothing casting it.
+  * shadows fade out more gently at dusk (over 0.15 of sun elevation instead of 0.10).
+  * menu: counts of rejected non-object draws and LOD draws, entity tags on / missing, buffer tracking and its write count.
+* 32-bit: draws from buffers the game keeps refilling never cast.
+
 ## 1.4.7 (hotfix)
 * 64-bit: no shadows at all in 1.4.6 ("ok (deferred)", casters rendered, but nothing on screen). 1.4.6 took the camera for the shadow mask from the FIRST draw of the frame, even from shaders without `CameraPosition`. The sky / clouds are drawn first with a view matrix without the camera translation, so the mask rebuilt every pixel far away from where it is and no shadow landed anywhere.
 * Fix, the libZyZGFX64 way: a view is only used when it is a perspective view whose camera lies within 5 m of the game's `TheCamera` position (matrix at +0x18, position at +0x30). Without `TheCamera`, only shaders with `CameraPosition` are used (like 1.4.5). A frame without a valid view reuses the last one for up to 2 frames instead of blinking.

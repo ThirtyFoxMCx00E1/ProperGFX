@@ -451,7 +451,7 @@ in highp vec2 vUV;
 void main(){ if (uAlpha > 0.0 && textureLod(uTex, vUV, 0.0).a < uAlpha) discard; }
 )PGFXGLSL" },
   { "fragment/shadow_mask.glsl", R"PGFXGLSL(#version 300 es
-// Proper GFX 1.4.3 deferred (screen-space) sun shadows - MASK pass. Technique of libZyZyGFX64 (see the GLSL-Samples-source-mod repo):
+// Proper GFX 1.4.8 deferred (screen-space) sun shadows - MASK pass. Technique of libZyZyGFX64 (see the GLSL-Samples-source-mod repo):
 //  * the game's scene target gets OUR depth texture instead of its depth renderbuffer (ps_scene.cpp), so after RenderScene the
 //    depth of every pixel on screen is readable;
 //  * each pixel's world position is rebuilt from that depth (inverse view-projection, relative to the camera for precision),
@@ -536,7 +536,9 @@ void main(){
   // a surface that faces away from the sun IS in shadow (single-sided facades have no back side in the map),
   // only where the cascades reach; back faces at half strength (the game's lighting already darkened them)
   float cov = e0 < 1.0 ? 1.0 : (e1 >= 1.0 ? 0.0 : 1.0 - smoothstep(uShade.z, 1.0, e1));
-  v = mix(v, 0.0, (1.0 - smoothstep(-0.25, 0.05, ndl)) * cov);
+  // 1.4.8: only with the sun reasonably high. With a low sun (morning / evening) every gentle slope turned away from it went
+  // fully dark - whole hillsides and roads in shadow with no object casting it. Low sun: the map's real shadows only.
+  v = mix(v, 0.0, (1.0 - smoothstep(-0.25, 0.0, ndl)) * cov * smoothstep(0.15, 0.35, uSun.z));
   v = mix(1.0, v, mix(0.5, 1.0, smoothstep(-0.25, 0.25, ndl)));
   if (water) v = mix(1.0, v, 0.5);
   if (uFog.y > 0.0) v = mix(v, 1.0, clamp((dist - uFog.x) * uFog.y, 0.0, 1.0)); // the game already fogged this pixel

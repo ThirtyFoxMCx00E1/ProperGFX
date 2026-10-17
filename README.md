@@ -1,4 +1,4 @@
-# Proper GFX Mobile 1.4.7 (AML mod for GTA San Andreas Android)
+# Proper GFX Mobile 1.4.8 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
@@ -14,6 +14,9 @@ Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 3. Start the game. Everything lives in `files/ProperGFX/`; settings are `files/ProperGFX/TYFMC.ProperGFX.ini`.
 
 Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
+
+## 1.4.8 - no shadows from nothing
+* Only real objects cast (no clouds / water / effects / LOD models), and slopes turned away from a low sun are no longer darkened as a whole.
 
 ## 1.4.7 - shadows visible again
 * 1.4.6 showed no shadows on 64-bit: the sky's camera was used for the shadow mask. The camera is now checked against the game's TheCamera like ZyZGFX64.
