@@ -29,6 +29,7 @@ std::mutex g_mx;
 std::vector<TouchEv> g_queue;
 struct Rect { float x0, y0, x1, y1; bool valid; } g_rects[2] = {};   // [0] floating button, [1] menu window
 bool g_captured[16] = {};
+bool g_hiddenReset = false;            // 1.4.6: the UI was hidden (not in gameplay)
 int  g_primary = -1;
 
 bool InRects(float x, float y)
@@ -41,7 +42,6 @@ bool InRects(float x, float y)
 ImGuiContext* g_ctx = nullptr;
 bool  g_menuOpen = false;
 bool  g_dirty = false;               // settings changed -> save when interaction ends
-bool  g_methodChanged = false;        // shadow Method switched to / from In-shader this session (needs a restart)
 char  g_ini[512] = "";
 float g_fontPx = 0.f;
 int   g_screenW = 0, g_screenH = 0;
@@ -228,14 +228,8 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
     if (!shPrev && s.shadows) s.shadowRetry = true;      // switching shadows on also clears safe mode
     if (shOpen)
     {
-        {
-            static const char* methods[] = { "Deferred (screen-space, like ZyZyGFX)", "In-shader (1.4.2 receivers)" };
-            const int before = s.shadowMethod;
-            Combo("Method", &s.shadowMethod, methods, 2);
-            if (before != s.shadowMethod && (before == 1 || s.shadowMethod == 1)) g_methodChanged = true;
-            if (g_methodChanged) ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Restart the game: In-shader needs the receivers compiled into the game shaders at load (Deferred does not).");
-            if (s.shadowMethod == 0) Check("Half-resolution mask (faster)", &s.shadowMaskHalf);
-        }
+        s.shadowMethod = 0;                                 // 1.4.6: always Deferred (like ZyZGFX64), the 1.4.2 in-shader method was removed
+        Check("Half-resolution mask (faster)", &s.shadowMaskHalf);
         SliderF("Strength", &s.shadowStrength, 0.f, 1.f);
         { static const char* res[] = { "512", "1024", "2048" }; Combo("Resolution", &s.shadowRes, res, 3); }
         SliderF("Distance (m)", &s.shadowDist, 25.f, 160.f, "%.0f");
@@ -250,23 +244,19 @@ void DrawFeatures(PSSettings& s, const PSUIStatus& st)
         Check("Crash guard (safe mode after a failed launch)", &s.shadowGuard);
         SliderF("Shadow tint amount", &s.shadowTint, 0.f, 1.f);
         SliderF("Tint red", &s.shadowTintR, 0.f, 1.f); SliderF("Tint green", &s.shadowTintG, 0.f, 1.f); SliderF("Tint blue", &s.shadowTintB, 0.f, 1.f);
-        if (s.shadowMethod == 0) Note("Deferred: casters -> 2 cascades (shadow_depth.glsl), then shadow_mask.glsl rebuilds every pixel's position from the scene depth and darkens it (shadow_apply.glsl). Game shaders are not touched.");
-        else Note("In-shader: shadow code = shadows.glsl (fragment + vertex) compiled into the game's world shaders.");
+        Note("Deferred (like ZyZGFX64): casters -> 2 cascades (shadow_depth.glsl), then shadow_mask.glsl rebuilds every pixel's position from the scene depth and darkens it (shadow_apply.glsl). Game shaders are not touched.");
+        Note("Trees cast their leaves (cut out with the game's alpha test), LOD stand-ins do not cast near you, and only static buildings are remembered out of view - moved / streamed-out objects leave no ghost shadow.");
         Note("Sun source Auto = the game's time-cycle sun vector (follows the game clock). Strength can follow the Shdw column of timecyc.dat.");
-        Note(s.shadowMethod == 0 ? "Buildings, roads, terrain, trees and vehicles cast; everything on screen receives (pedestrians too). Applies right away, no restart."
-                                 : "Buildings, roads, terrain and vehicles cast and receive shadows; pedestrians do not.");
-        if (s.shadows && s.shadowMethod == 1 && st.shadowReceivers == 0 && st.patchedShaders >= 10)
-            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1), "Restart the game to finish turning shadows on (the receiver code is compiled into the shaders when the game starts).");
+        Note("Buildings, roads, terrain, trees and vehicles cast; everything on screen receives (pedestrians too). Applies right away, no restart.");
         if (st.shadow)
         {
             const PSShadowStats& sh = *st.shadow;
             ImGui::TextWrapped("Status: %s", sh.note[0] ? sh.note : (sh.ready ? "ok" : "waiting for the first frame"));
-            ImGui::Text("Method: %s   shadows %s%s", s.shadowMethod == 0 ? "Deferred" : "In-shader", sh.enabled ? "on" : "OFF",
+            ImGui::Text("Method: Deferred   shadows %s%s", sh.enabled ? "on" : "OFF",
                         (st.fx && st.fx->adaptiveLevel >= 2) ? "   (adaptive quality: slower updates, half-res mask)" : "");
             ImGui::Text("Casters: %d captured, %d rendered, %d skipped", sh.captured, sh.replayed, sh.rejected);
             ImGui::Text("Remembered: %d casters (%d kept although out of view), %d draws into other targets ignored", sh.cacheSize, sh.cacheKept, sh.otherTargets);
-            if (s.shadowMethod == 1) ImGui::Text("Receivers: %d shader variants carry the shadow lookup", st.shadowReceivers);
-            if (s.shadowMethod == 0 && st.scene)
+            if (st.scene)
             {
                 const PSSceneStats& sc = *st.scene;
                 if (sc.rqReady) ImGui::Text("Render queue: command slot %d%s, events posted %u / ran %u", sc.rqSlot, sc.chained ? " (chained)" : "", sc.posted[2], sc.ran[2]);
@@ -654,9 +644,23 @@ bool UI_OnTouch(int type, int finger, int x, int y)
     return true;
 }
 
-void UI_Render(PSSettings& s, int W, int H, float dt, const PSUIStatus& st)
+void UI_Render(PSSettings& s, int W, int H, float dt, const PSUIStatus& st, bool gameplay)
 {
+    if (!gameplay)
+    {   // 1.4.6: main menu / pause menu / loading screen: no button, no window, and no touch is taken from the game.
+        // A pending "open menu" request (Settings > Mods) waits until gameplay resumes.
+        std::lock_guard<std::mutex> l(g_mx);
+        g_rects[0].valid = false; g_rects[1].valid = false;
+        for (int i = 0; i < 16; ++i) g_captured[i] = false;
+        g_primary = -1; g_queue.clear(); g_hiddenReset = true;
+        return;
+    }
     if (!g_ctx && !UI_Init()) return;
+    if (g_hiddenReset)
+    {   // back in gameplay: a press that was cut off by the menu must not stay "down" inside ImGui
+        g_hiddenReset = false; g_pressing = false; g_dragging = false;
+        ImGuiIO& io0 = ImGui::GetIO(); io0.AddMouseButtonEvent(0, false); io0.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    }
     if (g_openRequest.exchange(false)) g_menuOpen = true;
     if (!s.showButton && !g_menuOpen) { std::lock_guard<std::mutex> l(g_mx); g_rects[0].valid = false; g_rects[1].valid = false; return; }
 

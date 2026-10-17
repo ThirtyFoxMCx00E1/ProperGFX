@@ -26,6 +26,7 @@ std::mutex g_mx;
 std::vector<TouchEv> g_queue;
 struct Rect { float x0, y0, x1, y1; bool valid; } g_rects[2] = {};   // [0] floating button, [1] menu window
 bool g_captured[16] = {};
+bool g_hiddenReset = false;            // 1.4.6: the UI was hidden (not in gameplay)
 int  g_primary = -1;
 
 bool InRects(float x, float y)
@@ -592,9 +593,23 @@ bool UI_OnTouch(int type, int finger, int x, int y)
     return true;
 }
 
-void UI_Render(PSSettings& s, int W, int H, float dt, const PSUIStatus& st)
+void UI_Render(PSSettings& s, int W, int H, float dt, const PSUIStatus& st, bool gameplay)
 {
+    if (!gameplay)
+    {   // 1.4.6: main menu / pause menu / loading screen: no button, no window, and no touch is taken from the game.
+        // A pending "open menu" request (Settings > Mods) waits until gameplay resumes.
+        std::lock_guard<std::mutex> l(g_mx);
+        g_rects[0].valid = false; g_rects[1].valid = false;
+        for (int i = 0; i < 16; ++i) g_captured[i] = false;
+        g_primary = -1; g_queue.clear(); g_hiddenReset = true;
+        return;
+    }
     if (!g_ctx && !UI_Init()) return;
+    if (g_hiddenReset)
+    {   // back in gameplay: a press that was cut off by the menu must not stay "down" inside ImGui
+        g_hiddenReset = false; g_pressing = false; g_dragging = false;
+        ImGuiIO& io0 = ImGui::GetIO(); io0.AddMouseButtonEvent(0, false); io0.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    }
     if (g_openRequest.exchange(false)) g_menuOpen = true;
     if (!s.showButton && !g_menuOpen) { std::lock_guard<std::mutex> l(g_mx); g_rects[0].valid = false; g_rects[1].valid = false; return; }
 

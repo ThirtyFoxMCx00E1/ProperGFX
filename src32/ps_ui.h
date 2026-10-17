@@ -24,6 +24,6 @@ bool UI_Init();                                  // GL thread, context current
 void UI_Shutdown();
 void UI_ContextLost();
 bool UI_OnTouch(int type, int finger, int x, int y);   // any thread; true = event belongs to the UI (swallow it)
-void UI_Render(PSSettings& s, int w, int h, float dt, const PSUIStatus& st);   // GL thread
+void UI_Render(PSSettings& s, int w, int h, float dt, const PSUIStatus& st, bool gameplay = true);   // GL thread; gameplay = false hides everything (main / pause menu)
 bool UI_MenuOpen();
 void UI_RequestOpen();                            // any thread (SAUtils Settings > Mods button): opens the menu on the next frame

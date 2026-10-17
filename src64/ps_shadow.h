@@ -31,7 +31,14 @@ void   Shadow_SetSunHint(const float v[3], bool valid);        // CTimeCycle::m_
 bool   Shadow_WantCapture();                                   // true while this frame's draws are being recorded
 void   Shadow_RecordDraw(int mode, int count, uintptr_t offset);   // call right AFTER the game issued the draw
 void   Shadow_EndFrame();
-// 1.4.3 deferred method (ps_scene.h delivers the render-queue events)
+// 1.4.6: entity kind of the draws that follow (PSDrawKind, from the PS_EV_TAG render-queue event), the game's alpha-test state
+// (RQ_Command_rqSetAlphaTest statics curFunc / curVal) and buffer writes seen by the GOT hooks on libGTASA's GL imports
+void   Shadow_SetDrawKind(int kind);
+void   Shadow_SetAlphaTestState(const int* func, const float* ref);
+void   Shadow_SetBufferTracking(bool on);
+void   Shadow_OnBufferWrite(GLenum target);                    // glBufferData / glBufferSubData / glMapBufferRange(write) by the game
+void   Shadow_OnBufferDelete(GLsizei n, const GLuint* ids);    // glDeleteBuffers by the game
+// deferred method (the only one since 1.4.6; ps_scene.h delivers the render-queue events)
 bool   Shadow_Deferred();
 void   Shadow_SetFrameGlobals(float underwater, const float sunVector[3]);
 bool   Shadow_WantCamera();                                    // the rqDrawIndexed hook should call Shadow_RecordCamera after the draw

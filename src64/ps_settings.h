@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PS_VERSION     "1.4.5"
+#define PS_VERSION     "1.4.6"
 #define PS_DIR_NAME    "ProperGFX"              // files/ProperGFX (1.3 and older: files/ProperShader, moved automatically)
 #define PS_INI_NAME    "TYFMC.ProperGFX.ini"    // 1.3 and older: settings.ini (renamed automatically)
 #define PS_BUTTON_HIDDEN_BELOW 0.06f            // 64-bit: anything below = 0 = invisible (an old 0.05 from the 32-bit range included)

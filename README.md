@@ -1,4 +1,4 @@
-# Proper GFX Mobile 1.4.5 (AML mod for GTA San Andreas Android)
+# Proper GFX Mobile 1.4.6 (AML mod for GTA San Andreas Android)
 
 | Build | Game | ABI | File | Source tree | Shaders |
 |---|---|---|---|---|---|
@@ -15,6 +15,10 @@ Formerly *Proper Shader Mobile* (`libProperShader32/64.so`).
 
 Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/ProperGFX/` and `settings.ini` to `TYFMC.ProperGFX.ini` automatically (your settings are kept).
 
+## 1.4.6 - deferred-only shadows, no ghosts / flicker
+* 64-bit shadows are always Deferred like ZyZGFX64 (Method option removed). Trees cast their leaf shape, LOD boxes and moved / re-used meshes leave no ghost shadow, and shadows no longer pop on and off.
+* Effects and the floating menu appear only in gameplay, not in the main menu or pause menu.
+
 ## 1.4.5 - shadows stuck in safe mode
 * The 1.4.3 crash left the old crash-guard file behind, so shadows started in safe mode every time and "Retry" asked for a restart. The file is removed. With Method = Deferred, Retry / Medium / High switch shadows on immediately. Adaptive quality no longer turns shadows off, and the status line tells you why shadows are off.
 
@@ -27,7 +31,7 @@ Upgrading from 1.3: the old `files/ProperShader/` folder is renamed to `files/Pr
 * **Render-queue events**: a hook on `RenderScene` (game thread) writes one of our commands into the game's `RenderQueue` before and after it. It uses the `rqDebugMarker` command slot (the game's own markers are passed on), so our code runs on the render thread exactly when the 3D world is finished and before post effects / HUD.
 * **Casters -> 2 cascades** (`shaders/vertex|fragment/shadow_depth.glsl`, GLSL ES 3.00): near 14-40 m every capture, far = Distance every 2nd capture. They use D16 depth textures with hardware compare (PCF).
 * **Mask** (`shaders/fragment/shadow_mask.glsl`): each pixel's world position is rebuilt from the scene depth and its normal from the neighbouring depths. It then gets a normal-offset + slope bias, a 3x3 PCF, a back-face ramp, fog / water / underwater handling, and Tint. `shadow_apply.glsl` multiplies the mask into the scene. Everything visible receives shadows, peds included.
-* New `[DynamicShadows] Method = Deferred | InShader` (Deferred is the default; InShader = the 1.4.2 receivers, needs a restart) and `HalfResMask` (Medium preset = on). The menu shows the render-queue slot, delivered events, the scene target and its depth texture.
+* New `[DynamicShadows] Method = Deferred | InShader` (1.4.6: 64-bit is always Deferred, the setting is ignored) and `HalfResMask` (Medium preset = on). The menu shows the render-queue slot, delivered events, the scene target and its depth texture.
 * Needs OpenGL ES 3.0 (every GTA SA 2.10 phone has it). The render-queue offsets are those of GTA SA 2.10 arm64 (taken from libZyZyGFX64). If the layout does not match, deferred shadows switch themselves off and say so in the menu / `propergfx_log.txt`.
 * Do not run libZyZyGFX64's shadows at the same time (both replace the same depth buffer). If its depth texture is already there, Proper GFX reads it instead of replacing it.
 * Repo: `Shaders/` renamed to lowercase **`shaders/`**.

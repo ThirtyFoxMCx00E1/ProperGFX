@@ -6,20 +6,28 @@
 #include <stdio.h>
 #include <vector>
 #include <unordered_map>
+#include <algorithm>
+#include <string>
 #include <time.h>
 
 namespace {
 
-const int   kMaxDraws = 3200;
+const int   kMaxDraws = 6000;
+const int   kMaxCache = 8000;
+#ifndef GL_GREATER
+#define GL_GREATER 0x0204
+#endif
 const float kDepthRange = 220.f;              // half-extent of the light frustum along the sun direction (metres)
 
-struct PInfo { GLint obj = -1, bones = -1, cam = -1, dir = -1, aPos = -1, aUV = -1, view = -1, proj = -1; };
+struct PInfo { GLint obj = -1, bones = -1, cam = -1, dir = -1, aPos = -1, aUV = -1, view = -1, proj = -1; bool discard = false, srcKnown = false; };
 struct Attr  { GLint size = 0, type = 0, norm = 0, stride = 0; uintptr_t ptr = 0; GLuint vbo = 0; };
 struct VAttr { Attr pos, uv; bool ok = false; };
-struct Draw  { GLuint ibo = 0, tex = 0; GLenum mode = GL_TRIANGLES; GLsizei count = 0; uintptr_t off = 0; Attr pos, uv; float obj[16]; GLint fbo = 0; };
+// 1.4.6: alphaRef = alpha-test threshold (0 = solid), *Gen = buffer generation at capture (bumped by the game's glBufferData / SubData / Delete)
+struct Draw  { GLuint ibo = 0, tex = 0; GLenum mode = GL_TRIANGLES; GLsizei count = 0; uintptr_t off = 0; Attr pos, uv; float obj[16]; GLint fbo = 0;
+               float alphaRef = 0.f; uint32_t vboGen = 0, iboGen = 0, uvGen = 0; bool cacheable = false; };
 // A shadow caster remembered across frames. The game only draws what is in view, so a building behind you would stop casting into the view the moment you turn;
 // anything seen at the same place in two capture frames is treated as static and keeps casting while it is out of view.
-struct CEntry { Draw d; uint64_t key = 0; double seen = 0; int hits = 0, miss = 0; uint32_t seenCapture = 0; GLint vboSize = 0, iboSize = 0; bool dead = false; };
+struct CEntry { Draw d; uint64_t key = 0; double seen = 0; int hits = 0, miss = 0; uint32_t seenCapture = 0; GLint vboSize = 0, iboSize = 0; bool dead = false, temp = false; float dist2 = 0.f; };
 struct FboInfo { GLint id = 0; int n = 0; float cam[3] = {0, 0, 0}; float view[16], proj[16]; bool haveCam = false, haveVP = false; };
 
 struct Prog { GLuint id = 0; GLint uLVP = -1, uObj = -1, uTex = -1, uAlpha = -1, uUvScale = -1; };
@@ -34,6 +42,8 @@ struct ShadowState
     std::vector<Draw> draws;
     std::vector<FboInfo> fbos;                         // per render target seen during the capture frame (the main scene = the one with the most world draws)
     std::unordered_map<uint64_t, CEntry> cache; std::vector<CEntry*> list; uint32_t captureId = 0;
+    std::vector<CEntry> temp;                          // 1.4.6: this capture's non-cacheable casters (dynamic buffers)
+    const int* atFunc = nullptr; const float* atRef = nullptr; bool bufTracking = false;
     std::unordered_map<GLuint, PInfo> progs;
     std::unordered_map<uint64_t, VAttr> vcache;
     float cam[3] = {0, 0, 0}, dir[3] = {0, 0, 1}; bool haveCam = false, haveDir = false;
@@ -51,6 +61,26 @@ struct ShadowState
 };
 ShadowState G;
 
+// 1.4.6 buffer generations (see the 64-bit tree): a remembered caster dies when the game rewrites / frees its buffers = no ghost shadows
+struct BufInfo { uint32_t gen = 0, lastFrame = 0; uint16_t hot = 0; };
+std::vector<BufInfo> g_buf; std::unordered_map<GLuint, BufInfo> g_bufBig;
+BufInfo* Buf(GLuint id, bool create)
+{
+    if (id < (1u << 18)) { if (id >= g_buf.size()) { if (!create) return nullptr; g_buf.resize(((size_t)id + 4096) & ~(size_t)4095); } return &g_buf[id]; }
+    auto it = g_bufBig.find(id);
+    if (it != g_bufBig.end()) return &it->second;
+    return create ? &g_bufBig[id] : nullptr;
+}
+uint32_t BufGen(GLuint id) { const BufInfo* b = Buf(id, false); return b ? b->gen : 0u; }
+bool BufHot(GLuint id) { const BufInfo* b = Buf(id, false); return b && b->hot >= 3 && G.frame - b->lastFrame < 600; }
+void BufTouch(GLuint id)
+{
+    if (!id) return;
+    BufInfo* b = Buf(id, true);
+    b->hot = (G.frame - b->lastFrame < 120 && b->gen) ? (uint16_t)(b->hot < 1000 ? b->hot + 1 : b->hot) : 1;
+    b->lastFrame = G.frame; ++b->gen;
+}
+
 static const char* kRVS =
 "attribute vec3 aPos; attribute vec4 aUV;\n"
 "uniform mat4 uLightVP; uniform mat4 uObj; uniform float uUvScale;\n"
@@ -61,7 +91,7 @@ static const char* kRFS =
 "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n"
 "uniform sampler2D uTex; uniform float uAlpha; varying vec2 vUV;\n"
 "void main(){\n"
-"  if (uAlpha > 0.5) { if (texture2D(uTex, vUV).a < 0.5) discard; }\n"
+"  if (uAlpha > 0.0) { if (texture2D(uTex, vUV).a < uAlpha) discard; }\n"
 "  vec3 enc = fract(gl_FragCoord.z * vec3(1.0, 255.0, 65025.0));\n"
 "  enc -= enc.yzz * vec3(1.0/255.0, 1.0/255.0, 0.0);\n"
 "  gl_FragColor = vec4(enc, 1.0);\n"
@@ -138,6 +168,21 @@ PInfo& GetProg(GLuint prog)
     pi.aUV = glGetAttribLocation(prog, "TexCoord0");
     pi.view = glGetUniformLocation(prog, "ViewMatrix");
     pi.proj = glGetUniformLocation(prog, "ProjMatrix");
+    {   // 1.4.6: does the game's fragment shader alpha-test (discard)?
+        GLuint sh[4] = {0, 0, 0, 0}; GLsizei n = 0;
+        glGetAttachedShaders(prog, 4, &n, sh);
+        for (GLsizei i = 0; i < n; ++i)
+        {
+            GLint type = 0, len = 0; glGetShaderiv(sh[i], GL_SHADER_TYPE, &type);
+            if (type != GL_FRAGMENT_SHADER) continue;
+            glGetShaderiv(sh[i], GL_SHADER_SOURCE_LENGTH, &len);
+            if (len <= 1 || len > (1 << 20)) continue;
+            std::string src((size_t)len, '\0'); GLsizei got = 0;
+            glGetShaderSource(sh[i], len, &got, &src[0]);
+            if (got > 0) { pi.srcKnown = true; pi.discard = src.find("discard") != std::string::npos; }
+        }
+        while (glGetError() != GL_NO_ERROR) {}
+    }
     return G.progs.emplace(prog, pi).first->second;
 }
 
@@ -171,56 +216,91 @@ uint64_t DrawKey(const Draw& d)
     return h;
 }
 
-// probably drawn by the game if it existed: inside the view frustum (generous) and close
+// probably drawn by the game if it existed: well inside the view frustum and close
 bool ProbablyDrawn(const FboInfo& f, const float p[3], const float cam[3])
 {
     const float dx = p[0] - cam[0], dy = p[1] - cam[1], dz = p[2] - cam[2];
-    if (dx * dx + dy * dy + dz * dz > 70.f * 70.f) return false;
+    if (dx * dx + dy * dy + dz * dz > 110.f * 110.f) return false;
     float v[4], c[4];
     for (int r = 0; r < 4; ++r) v[r] = f.view[r] * p[0] + f.view[4 + r] * p[1] + f.view[8 + r] * p[2] + f.view[12 + r];
     for (int r = 0; r < 4; ++r) c[r] = f.proj[r] * v[0] + f.proj[4 + r] * v[1] + f.proj[8 + r] * v[2] + f.proj[12 + r] * v[3];
-    return c[3] > 0.f && fabsf(c[0]) < 1.25f * c[3] && fabsf(c[1]) < 1.25f * c[3];
+    return c[3] > 0.f && fabsf(c[0]) < 0.9f * c[3] && fabsf(c[1]) < 0.9f * c[3];
 }
 
-// Turns this frame's captured draws into the list that gets rendered: main-scene draws + remembered static casters the game did not draw this time.
+// 1.4.6: this capture's draws + remembered static casters -> a SORTED list (this capture first, then nearest first), so the replay cap always
+// drops the same far casters (1.4.5 used the hash-map order = random casters popping on / off). Remembered casters die when the game rewrote /
+// freed their buffers, when they are far behind, or when they are in front of the camera and the game stopped drawing them.
 void Commit()
 {
-    G.list.clear(); G.haveCam = false;
+    G.list.clear(); G.temp.clear(); G.haveCam = false;
     FboInfo* main = nullptr;
     for (FboInfo& f : G.fbos) if (!main || f.n > main->n) main = &f;
     if (!main) return;
     G.stats.otherTargets = 0;
     for (const FboInfo& f : G.fbos) if (&f != main) G.stats.otherTargets += f.n;
     if (main->haveCam) { memcpy(G.cam, main->cam, sizeof(G.cam)); G.haveCam = true; }
-    if (G.cache.size() > 9000) G.cache.clear();                                 // safety valve
     ++G.captureId;
     const double now = NowMs();
+    G.temp.reserve(G.draws.size());
     for (const Draw& d : G.draws)
     {
         if (d.fbo != main->id) continue;
+        if (!d.cacheable)
+        {
+            G.temp.emplace_back(); CEntry& e = G.temp.back();
+            e.d = d; e.seen = now; e.hits = 1; e.seenCapture = G.captureId; e.temp = true;
+            continue;
+        }
         const uint64_t k = DrawKey(d);
         auto it = G.cache.find(k);
         if (it == G.cache.end()) { it = G.cache.emplace(k, CEntry()).first; it->second.key = k; }
         CEntry& e = it->second;
-        if (e.seenCapture != G.captureId) ++e.hits;                              // twice in ONE frame (multi-pass) is not "stable"
+        if (e.seenCapture != G.captureId) ++e.hits;
         e.d = d; e.seen = now; e.miss = 0; e.seenCapture = G.captureId; e.dead = false;
     }
+    const float keepR = G.s.shadowDist * 1.5f + 260.f;
     int kept = 0;
     for (auto it = G.cache.begin(); it != G.cache.end();)
     {
         CEntry& e = it->second;
-        bool erase = false;
-        if (e.seenCapture != G.captureId)
+        bool erase = e.dead;
+        if (!erase && e.seenCapture != G.captureId)
         {
-            if (e.hits < 2) erase = true;                                        // seen once and gone: a moving object
-            else if (now - e.seen > 180000.0) erase = true;                      // not seen for 3 minutes
-            else if (main->haveVP && main->haveCam && ProbablyDrawn(*main, &e.d.obj[12], main->cam) && ++e.miss >= 3) erase = true;   // should be in view but the game stopped drawing it: moved away / removed
+            const float dx = e.d.obj[12] - G.cam[0], dy = e.d.obj[13] - G.cam[1], dz = e.d.obj[14] - G.cam[2];
+            const uint32_t gu = e.d.uv.vbo ? BufGen(e.d.uv.vbo) : e.d.uvGen;
+            if (BufGen(e.d.pos.vbo) != e.d.vboGen || BufGen(e.d.ibo) != e.d.iboGen || gu != e.d.uvGen) erase = true;   // the game rewrote / freed the mesh
+            else if (e.hits < 2) erase = true;                                   // seen once and gone: a moving object
+            else if (now - e.seen > 20000.0) erase = true;                       // not seen for 20 s
+            else if (G.haveCam && dx * dx + dy * dy + dz * dz > keepR * keepR) erase = true;
+            else if (main->haveVP && main->haveCam && ProbablyDrawn(*main, &e.d.obj[12], main->cam) && ++e.miss >= 2) erase = true;   // in front of us, not drawn: gone
             else ++kept;
         }
         if (erase) { it = G.cache.erase(it); continue; }
-        G.list.push_back(&e);
         ++it;
     }
+    if ((int)G.cache.size() > kMaxCache)
+    {
+        std::vector<std::pair<double, uint64_t>> age; age.reserve(G.cache.size());
+        for (auto& kv : G.cache) if (kv.second.seenCapture != G.captureId) age.emplace_back(kv.second.seen, kv.first);
+        std::sort(age.begin(), age.end());
+        const size_t drop = std::min(age.size(), G.cache.size() - (size_t)(kMaxCache * 9 / 10));
+        for (size_t i = 0; i < drop; ++i) G.cache.erase(age[i].second);
+    }
+    G.list.reserve(G.cache.size() + G.temp.size());
+    for (CEntry& e : G.temp) G.list.push_back(&e);
+    for (auto& kv : G.cache) G.list.push_back(&kv.second);
+    for (CEntry* e : G.list)
+    {
+        const float dx = e->d.obj[12] - G.cam[0], dy = e->d.obj[13] - G.cam[1], dz = e->d.obj[14] - G.cam[2];
+        e->dist2 = dx * dx + dy * dy + dz * dz;
+    }
+    const uint32_t cid = G.captureId;
+    std::sort(G.list.begin(), G.list.end(), [cid](const CEntry* a, const CEntry* b) {
+        const bool fa = a->seenCapture == cid, fb = b->seenCapture == cid;
+        if (fa != fb) return fa;
+        if (a->dist2 != b->dist2) return a->dist2 < b->dist2;
+        return a->key < b->key;
+    });
     G.stats.cacheSize = (int)G.cache.size(); G.stats.cacheKept = kept;
 }
 
@@ -296,6 +376,8 @@ void Replay()
         const bool fresh = e.seenCapture == G.captureId;           // drawn by the game this frame (otherwise: remembered)
         const float dx = d.obj[12] - G.cam[0], dy = d.obj[13] - G.cam[1], dz = d.obj[14] - G.cam[2];
         if (dx * dx + dy * dy + dz * dz > reach * reach) { ++rej; ++G.stats.rejDistance; continue; }
+        if (G.bufTracking && (BufGen(d.pos.vbo) != d.vboGen || BufGen(d.ibo) != d.iboGen || (d.uv.vbo && BufGen(d.uv.vbo) != d.uvGen)))
+        { ++rej; ++G.stats.rejStale; if (!e.temp) e.dead = true; continue; }      // the buffer now holds something else
         if (!glIsBuffer(d.pos.vbo) || !glIsBuffer(d.ibo)) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
         if (d.ibo != curIbo) { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.ibo); curIbo = d.ibo; }
         auto it = iboSize.find(d.ibo);
@@ -307,17 +389,19 @@ void Replay()
         // a remembered caster whose buffers changed size was freed / re-used by the game for something else: forget it
         if (fresh) { e.vboSize = vt->second; e.iboSize = it->second; }
         else if (e.vboSize != vt->second || e.iboSize != it->second) { ++rej; ++G.stats.rejStale; e.dead = true; continue; }
+        const bool cut = d.alphaRef > 0.f;
+        if (cut && (!d.tex || !d.uv.vbo || d.uv.size <= 0 || (!fresh && !glIsTexture(d.tex)))) { ++rej; ++G.stats.rejStale; if (!fresh) e.dead = true; continue; }
         glVertexAttribPointer(0, d.pos.size, d.pos.type, d.pos.norm != 0, d.pos.stride, (const void*)d.pos.ptr);
         glEnableVertexAttribArray(0);
         float alpha = 0.f, uvScale = 1.f;
-        if (d.uv.size > 0 && d.tex && d.uv.vbo && (fresh || glIsTexture(d.tex)))
+        if (cut)
         {
             if (d.uv.vbo != curVbo) { glBindBuffer(GL_ARRAY_BUFFER, d.uv.vbo); curVbo = d.uv.vbo; }
             glVertexAttribPointer(1, d.uv.size, d.uv.type, d.uv.norm != 0, d.uv.stride, (const void*)d.uv.ptr);
             glEnableVertexAttribArray(1); uvOn = true;
             if ((d.uv.type == GL_SHORT || d.uv.type == GL_UNSIGNED_SHORT) && !d.uv.norm) uvScale = 1.f / 512.f;   // the game divides by 512.0
             if (d.tex != curTex) { glBindTexture(GL_TEXTURE_2D, d.tex); curTex = d.tex; }
-            alpha = 1.f;
+            alpha = d.alphaRef;
         }
         else if (uvOn) { glDisableVertexAttribArray(1); uvOn = false; }
         glUniform1f(G.rp.uAlpha, alpha);
@@ -327,8 +411,8 @@ void Replay()
         ++drawn; if (!fresh) ++fromCache;
         if ((drawn & 255) == 0) { if (glGetError() != GL_NO_ERROR) ++errs; }
     }
-    for (CEntry* ep : G.list) if (ep->dead) G.cache.erase(ep->key);      // after the loop: the list holds pointers into the map
-    G.list.clear();
+    for (CEntry* ep : G.list) if (ep->dead && !ep->temp) G.cache.erase(ep->key);      // after the loop: the list holds pointers into the map
+    G.list.clear(); G.temp.clear();
     G.stats.cacheKept = fromCache; G.stats.cacheSize = (int)G.cache.size();
     glDisableVertexAttribArray(0); glDisableVertexAttribArray(1);
     while (glGetError() != GL_NO_ERROR) ++errs;
@@ -386,6 +470,21 @@ void Shadow_Configure(const PSSettings& s, int level)
     G.stats.enabled = G.enabled;
 }
 
+void Shadow_SetAlphaTestState(const int* func, const float* ref) { G.atFunc = func; G.atRef = ref; }
+void Shadow_SetBufferTracking(bool on) { G.bufTracking = on; }
+void Shadow_OnBufferWrite(GLenum target)
+{
+    GLenum q = target == GL_ARRAY_BUFFER ? GL_ARRAY_BUFFER_BINDING : (target == GL_ELEMENT_ARRAY_BUFFER ? GL_ELEMENT_ARRAY_BUFFER_BINDING : 0);
+    if (!q) return;
+    GLint id = 0; glGetIntegerv(q, &id);
+    if (id > 0) BufTouch((GLuint)id);
+}
+void Shadow_OnBufferDelete(GLsizei n, const GLuint* ids)
+{
+    if (!ids || n <= 0) return;
+    for (GLsizei i = 0; i < n; ++i) BufTouch(ids[i]);
+}
+
 void Shadow_SetTimecyc(float mul, int raw, int rawMax, bool valid)
 {
     G.tcValid = valid; G.tcMul = valid ? mul : 1.f;
@@ -408,9 +507,21 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     if (!prog) return;
     PInfo& pi = GetProg((GLuint)prog);
     if (pi.obj < 0 || pi.bones >= 0 || pi.aPos < 0) { ++G.stats.rejected; ++G.stats.rejNoShaderInfo; return; }        // 2D / HUD / skinned: not a shadow caster
-    if (glIsEnabled(GL_BLEND)) { ++G.stats.rejected; ++G.stats.rejBlend; return; }                              // translucent: particles, glass, water ...
     GLboolean dm = GL_TRUE; glGetBooleanv(GL_DEPTH_WRITEMASK, &dm);
     if (!dm) { ++G.stats.rejected; ++G.stats.rejNoDepthWrite; return; }                                               // sky dome etc. do not write depth
+    // 1.4.6: alpha test like the game (RQ_Command_rqSetAlphaTest state or a discarding shader). Tree leaves are blended + alpha-tested:
+    // 1.4.5 rejected every blended draw, so trees only cast their trunk / a box. Now they cast their leaves.
+    bool at = false; float ref = 0.f;
+    if (G.atFunc && G.atRef) { const int f = *G.atFunc; const float r = *G.atRef; if (f >= GL_GREATER && f <= GL_GREATER + 2 && r >= 0.f && r < 1.f) { at = true; ref = r; } }
+    const bool blend = glIsEnabled(GL_BLEND) != GL_FALSE;
+    float alphaRef = 0.f;
+    if (blend)
+    {
+        if (!(at || pi.discard || (!G.atFunc && !pi.srcKnown))) { ++G.stats.rejected; ++G.stats.rejBlend; return; }     // translucent: glass, water, effects
+        alphaRef = fmaxf(at ? ref : 0.f, 0.5f);
+    }
+    else if (at && ref > 0.004f) alphaRef = fmaxf(ref, 0.01f);
+    else if (pi.discard) alphaRef = 0.5f;
     GLint ibo = 0; glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &ibo);
     if (!ibo) { ++G.stats.rejected; ++G.stats.rejNoIndexBuffer; return; }                                              // client-side indices: not replayable
     GLint vbo = 0; glGetVertexAttribiv(pi.aPos, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &vbo);
@@ -437,20 +548,34 @@ void Shadow_RecordDraw(int mode, int count, uintptr_t off)
     ++fi->n;
     if (!fi->haveCam && pi.cam >= 0) { glGetUniformfv((GLuint)prog, pi.cam, fi->cam); fi->haveCam = true; }
     if (!fi->haveVP && pi.view >= 0 && pi.proj >= 0) { glGetUniformfv((GLuint)prog, pi.view, fi->view); glGetUniformfv((GLuint)prog, pi.proj, fi->proj); fi->haveVP = true; }
+    if (!fi->haveCam && fi->haveVP)
+    {   // no CameraPosition uniform seen yet: camera = inverse of the (rigid) view matrix
+        const float* v = fi->view;
+        for (int i = 0; i < 3; ++i) fi->cam[i] = -(v[i * 4 + 0] * v[12] + v[i * 4 + 1] * v[13] + v[i * 4 + 2] * v[14]);
+        fi->haveCam = isfinite(fi->cam[0]) && isfinite(fi->cam[1]) && isfinite(fi->cam[2]);
+    }
 
     Draw d;
     d.fbo = fb;
     d.ibo = (GLuint)ibo; d.mode = mode == 1 ? GL_TRIANGLE_STRIP : GL_TRIANGLES; d.count = count; d.off = off;
     d.pos = it->second.pos; d.uv = it->second.uv;
     glGetUniformfv((GLuint)prog, pi.obj, d.obj);
-    if (d.uv.size > 0)
+    if (alphaRef > 0.f)
     {   // diffuse texture (unit 0) for alpha-tested foliage / fences; the active unit is restored so the game's own tracker stays valid
-        GLint prev = 0, t = 0; glGetIntegerv(GL_ACTIVE_TEXTURE, &prev);
-        if (prev != GL_TEXTURE0) glActiveTexture(GL_TEXTURE0);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &t);
-        if (prev != GL_TEXTURE0) glActiveTexture((GLenum)prev);
-        d.tex = (GLuint)t;
+        if (d.uv.size <= 0 || !d.uv.vbo) { if (blend) { ++G.stats.rejected; ++G.stats.rejVertexFormat; return; } alphaRef = 0.f; }
+        else
+        {
+            GLint prev = 0, t = 0; glGetIntegerv(GL_ACTIVE_TEXTURE, &prev);
+            if (prev != GL_TEXTURE0) glActiveTexture(GL_TEXTURE0);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &t);
+            if (prev != GL_TEXTURE0) glActiveTexture((GLenum)prev);
+            d.tex = (GLuint)t;
+            if (!d.tex) { if (blend) { ++G.stats.rejected; ++G.stats.rejVertexFormat; return; } alphaRef = 0.f; }
+        }
     }
+    d.alphaRef = alphaRef;
+    d.vboGen = BufGen(d.pos.vbo); d.iboGen = BufGen(d.ibo); d.uvGen = d.uv.vbo ? BufGen(d.uv.vbo) : 0;
+    d.cacheable = !BufHot(d.pos.vbo) && !BufHot(d.ibo);                 // dynamic / streaming buffers are never remembered
     G.draws.push_back(d);
 }
 
@@ -460,7 +585,7 @@ void Shadow_EndFrame()
     {
         G.capturing = false;
         if (G.enabled) { Commit(); Replay(); }
-        G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.list.clear();
+        G.draws.clear(); G.vcache.clear(); G.fbos.clear(); G.list.clear(); G.temp.clear();
     }
     ++G.frame;
     if (!G.enabled) { if (G.ready && G.s.shadows == false) { /* keep texture, strength goes to 0 via Shadow_Uniforms */ } return; }
@@ -492,8 +617,9 @@ const PSShadowStats& Shadow_Stats() { return G.stats; }
 
 void Shadow_ContextLost()
 {
-    bool failed = G.failed; PSSettings s = G.s;
-    G = ShadowState(); G.failed = failed; G.s = s;
+    bool failed = G.failed; PSSettings s = G.s; const int* af = G.atFunc; const float* ar = G.atRef; bool bt = G.bufTracking;
+    G = ShadowState(); G.failed = failed; G.s = s; G.atFunc = af; G.atRef = ar; G.bufTracking = bt;
+    g_buf.clear(); g_bufBig.clear();
     Note("context lost - rebuilding");
 }
 

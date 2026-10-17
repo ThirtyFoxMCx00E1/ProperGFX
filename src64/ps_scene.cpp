@@ -59,9 +59,9 @@ void OurCommand(char** pp)
     if (m != kMagic) { if (g_prev) g_prev(pp); return; }
     *pp += 8;
     uint64_t pay = 0; memcpy(&pay, *pp, 8); *pp += 8;
-    const int ev = (int)(pay & 0xff);
-    if (ev >= 0 && ev < 3) ++S.ran[ev];
-    if (g_handler) g_handler(ev);
+    const int ev = (int)(pay & 0xff), arg = (int)((pay >> 8) & 0xffff);
+    if (ev >= 0 && ev < 4) ++S.ran[ev];
+    if (g_handler) g_handler(ev, arg);
 }
 
 bool LayoutOk(char* rq)
@@ -236,15 +236,20 @@ void Scene_SetWanted(bool on) { g_wanted = on; }
 bool Scene_Wanted() { return g_wanted && !S.disabled; }
 void Scene_SetScreenSize(int w, int h) { g_sw = w; g_sh = h; }
 
-void Scene_PostEvent(int ev)
+bool Scene_EventsReady() { return S.rqReady; }
+
+bool Scene_PostEvent(int ev, int arg)
 {
-    if (!g_wanted || S.disabled || ev < 0 || ev > 2) return;
-    if (!Register()) return;
+    if (!g_wanted || S.disabled || ev < 0 || ev > 3) return false;
+    if (!Register()) return false;
     char* rq = (char*)*g_rqVar;
-    if (!rq) return;
+    if (!rq) return false;
     char* wp = *(char**)(rq + 0x420); char* end = *(char**)(rq + 0x400);
-    if (!wp || !end || end < wp || (size_t)(end - wp) < kCmdSize + 64) { ++S.skippedFull; return; }   // never write past the buffer
-    const int32_t id = S.rqSlot; const uint64_t pay = (uint64_t)ev;
+    // tags need more head room than the two scene events: they are optional (an untagged draw only loses its cache slot)
+    // (the reset tag, arg 0, only needs the normal room: once a kind was posted its reset must get through)
+    const size_t room = (ev == PS_EV_TAG && arg != 0) ? 0x200 : kCmdSize + 64;
+    if (!wp || !end || end < wp || (size_t)(end - wp) < room) { ++S.skippedFull; return false; }   // never write past the buffer
+    const int32_t id = S.rqSlot; const uint64_t pay = (uint64_t)(ev & 0xff) | ((uint64_t)(arg & 0xffff) << 8);
     *(int32_t*)(rq + 0x428) = id;
     memcpy(wp, &id, 4); memcpy(wp + 4, &kMagic, 8); memcpy(wp + 12, &pay, 8);
     char* np = wp + kCmdSize;
@@ -257,6 +262,7 @@ void Scene_PostEvent(int ev)
     if (m) g_mutexRelease(m);
     ++S.posted[ev];
     if (!rq[0x3E8]) g_process(rq);                          // not threaded: the game runs the queue right away, so do we
+    return true;
 }
 
 void Scene_OnTargetSelected()
@@ -285,8 +291,8 @@ void Scene_ContextLost()
 
 const PSSceneStats& Scene_Stats() { return S; }
 
-void Scene_RunEventForTest(int ev)
+void Scene_RunEventForTest(int ev, int arg)
 {
-    if (ev >= 0 && ev < 3) ++S.ran[ev];
-    if (g_handler) g_handler(ev);
+    if (ev >= 0 && ev < 4) ++S.ran[ev];
+    if (g_handler) g_handler(ev, arg);
 }

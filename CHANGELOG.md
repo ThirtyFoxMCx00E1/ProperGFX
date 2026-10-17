@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.6
+* 64-bit shadows are always Deferred (the ZyZGFX64 way). The in-shader (1.4.2) method and the Method combo are removed.
+* Tree shadows have the leaf shape: blended + alpha-tested draws (SA foliage) now cast, cut out with the game's alpha-test reference (`RQ_Command_rqSetAlphaTest` state). 1.4.5 dropped every blended draw, so trees cast only a trunk / LOD box.
+* No ghost shadows: entities are tagged in `CEntity::Render` (building / tree / LOD / LOD tree / dynamic). Only buildings and trees are remembered; LOD tree boxes never cast, LOD buildings never cast in the near cascade. GOT hooks on libGTASA's `glBufferData` / `glBufferSubData` / `glMapBufferRange` / `glDeleteBuffers` drop a remembered caster as soon as its buffer is rewritten or freed. Remembered casters in front of the camera that the game stops drawing are dropped after 2 captures.
+* No flicker: the caster list is sorted (this frame first, then nearest first), so the draw cap always drops the same far casters; the cache is aged out instead of being cleared at once; draws into other render targets no longer use the budget; the camera comes from the view matrix when `CameraPosition` is missing.
+* Effects and the floating menu are shown only in gameplay (RenderScene ran in the last 8 frames and the pause menu is closed) - not in the main menu, pause menu or loading screens. Touches pass straight to the game there.
+* 32-bit (2.00): stays on the in-shader method (the deferred pass needs the 2.10 arm64 render queue). It gets the gameplay-only effects / menu, blended foliage casters with the alpha-test reference, buffer-rewrite invalidation, the sorted stable caster list and a stricter cache.
+
 ## 1.4.5
 * 64-bit: shadows stuck off ("0 captured", status frozen on "retry requested - restart the game"):
   * the 1.4.3 start-up crash left `shadow_guard_v132.txt` behind, so every launch started in safe mode; that file is deleted and the guard is now `shadow_guard_v145.txt`.

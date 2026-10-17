@@ -29,7 +29,12 @@ void   Shadow_SetTimecyc(float mul, int raw, int rawMax, bool valid);   // stren
 void   Shadow_SetSunHint(const float v[3], bool valid);        // CTimeCycle::m_VectorToSun[current] (points TOWARD the sun); once per frame before Shadow_EndFrame
 bool   Shadow_WantCapture();                                   // true while this frame's draws are being recorded
 void   Shadow_RecordDraw(int mode, int count, uintptr_t offset);   // call right AFTER the game issued the draw
-void   Shadow_EndFrame();                                      // at swap: replays the capture (GL state must be saved by the caller)
+void   Shadow_EndFrame();
+// 1.4.6: the game's alpha-test state (RQ_Command_rqSetAlphaTest statics) and buffer writes seen by the GOT hooks on libGTASA's GL imports
+void   Shadow_SetAlphaTestState(const int* func, const float* ref);
+void   Shadow_SetBufferTracking(bool on);
+void   Shadow_OnBufferWrite(GLenum target);
+void   Shadow_OnBufferDelete(GLsizei n, const GLuint* ids);                                      // at swap: replays the capture (GL state must be saved by the caller)
 void   Shadow_Uniforms(float lightVP[16], float params[4]);    // values for the object shaders (zero = shadows off)
 GLuint Shadow_Texture();
 uint32_t Shadow_FrameId();

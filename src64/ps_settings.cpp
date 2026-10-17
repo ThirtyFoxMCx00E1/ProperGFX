@@ -107,7 +107,7 @@ static void Sanitize(PSSettings& s)
     s.dofMode = (s.dofMode < 0 || s.dofMode > 1) ? 0 : s.dofMode; s.dofBokeh = clampf(s.dofBokeh, 0.f, 2.f); s.dofRadius = clampf(s.dofRadius, 0.3f, 3.f);
     s.dofUnderwater = clampf(s.dofUnderwater, 0.f, 1.f); s.sunGlow = clampf(s.sunGlow, 0.f, 1.5f); s.sunGlowSize = clampf(s.sunGlowSize, 0.03f, 0.6f);
     s.goldenHour = clampf(s.goldenHour, 0.f, 1.f); s.shadowTint = clampf(s.shadowTint, 0.f, 1.f);
-    s.shadowMethod = s.shadowMethod < 0 || s.shadowMethod > 1 ? 0 : s.shadowMethod;
+    s.shadowMethod = 0;                 // 1.4.6: always Deferred (like ZyZGFX64); an old 'Method = InShader' line is ignored
     s.shadowTintR = clampf(s.shadowTintR, 0.f, 1.f); s.shadowTintG = clampf(s.shadowTintG, 0.f, 1.f); s.shadowTintB = clampf(s.shadowTintB, 0.f, 1.f);
     for (float& p : s.glslParam) p = clampf(p, -1.f, 1.f);
     s.uiScale = clampf(s.uiScale, 0.6f, 2.f);

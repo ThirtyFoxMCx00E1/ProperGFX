@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.5, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
+// Proper GFX Mobile (v1.4.6, 64-bit source tree: C++/H + GLSL) - AML mod for GTA San Andreas Android 2.10 (arm64-v8a)
 // Every shader is a .glsl file of the source tree (shaders/{vertex,fragment}, SAShaderL-style layout and uniforms) compiled INTO the .so, see ps_glsl.h.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -23,6 +23,12 @@
 #include "sautils/isautils.h"
 #include <dirent.h>
 #include <strings.h>
+#include <link.h>
+#include <pthread.h>
+#include <atomic>
+#include <mutex>
+#include <vector>
+#include <GLES3/gl3.h>
 
 #if defined(__LP64__)
   #define PS_BITS 64
@@ -32,7 +38,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.5, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.6, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -47,9 +53,17 @@ static unsigned char* g_pClockH = nullptr; // CClock::ms_nGameClockHours
 static unsigned char* g_pClockM = nullptr; // CClock::ms_nGameClockMinutes
 static unsigned char* g_pShdwTable = nullptr;  // CTimeCycle::m_nShadowStrength[8 hours][23 weathers] = the 'Shdw' column of timecyc.dat
 static void UpdateTimecycStrength();
+static void FlushPendingBufferWrites();
 static unsigned* g_pTimeMs = nullptr;        // CTimer::m_snTimeInMilliseconds  -> Time
 static float g_farClip = 800.f;              // last RwCameraSetFarClipPlane    -> FarClipDist
 static volatile int g_entityModel = -1;      // CEntity::m_nModelIndex of the last CEntity::Render -> EntityModel
+static void** g_pModelInfo = nullptr;        // CModelInfo::ms_modelInfoPtrs[20000]
+static bool*  g_pUserPause = nullptr;        // CTimer::m_UserPause (the pause menu is open)
+// 1.4.6 gameplay detection: the 3D world is rendered (RenderScene) only in gameplay - never in the main menu, the pause menu or a loading screen
+static std::atomic<unsigned> g_sceneCalls{0};
+static unsigned g_sceneSeen = 0; static int g_noSceneFrames = 1000;
+static bool g_inGame = false, g_sceneHooked = false;
+static pthread_t g_renderThread; static bool g_haveRenderThread = false;
 static short* g_pWeatherOld = nullptr; static short* g_pWeatherNew = nullptr; static float* g_pWeatherInterp = nullptr;
 
 static PSSettings g_cfg;
@@ -126,12 +140,22 @@ static void OnFrame()
     float dt = std::chrono::duration<float>(now - last).count(); last = now;
     if (dt > 0.25f) dt = 0.25f; if (dt < 0.0005f) dt = 0.0005f;
     accum += dt; (void)t0;
+    g_renderThread = pthread_self(); g_haveRenderThread = true;
+    FlushPendingBufferWrites();
+    {   // gameplay = the game rendered its 3D world in the last few frames and the pause menu is not open.
+        // Post effects, the floating button / menu and the shadows only run in gameplay (1.4.6: they were also drawn over the main menu)
+        const unsigned sc = g_sceneCalls.load(std::memory_order_relaxed);
+        if (sc != g_sceneSeen) { g_sceneSeen = sc; g_noSceneFrames = 0; } else if (g_noSceneFrames < 1000) ++g_noSceneFrames;
+        const bool paused = g_pUserPause && *g_pUserPause;
+        g_inGame = (!g_sceneHooked || g_noSceneFrames < 8) && !paused;
+    }
 
     // time of day -> live Day/Night values
     float nf = (g_pClockH && g_pClockM && *g_pClockH < 24 && *g_pClockM < 60) ? PS_NightFactor(*g_pClockH, *g_pClockM) : 0.f;
     PS_UpdateLive(g_cfg, nf);
     float wet = g_pWetRoads ? *g_pWetRoads : 0.f;
     World_SetEnabled(g_cfg.enabled);
+    g_cfg.shadowMethod = 0;                 // 1.4.6: always Deferred (like libZyZGFX64)
     Shadow_Configure(g_cfg, FX_Stats().adaptiveLevel);
     Scene_SetScreenSize(w, h);
     {   // the game's own sun vector (points TOWARD the sun, world space, z up) - the same vector the sun disc / coronas use
@@ -147,8 +171,6 @@ static void OnFrame()
         g_cfg.shadowRetry = false;
         if (g_guardPath[0]) remove(g_guardPath);
         g_guardTripped = false; g_guardActive = false; g_guardFrames = g_guardTotal = 0;
-        if (g_cfg.shadows && g_cfg.shadowGuard && g_guardPath[0] && g_cfg.shadowMethod == 1)    // re-arm (In-shader): if the retry itself crashes, the next launch is in safe mode again
-        { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("retry in progress\n", gf); fclose(gf); g_guardActive = true; } }
         Shadow_SetGuardFailed(false);
     }
 
@@ -177,14 +199,14 @@ static void OnFrame()
         memcpy(g.user, g_cfg.glslParam, sizeof(g.user));
         FX_SetGlobals(g);
     }
-    if (g_cfg.enabled && g_cfg.postFx && !FX_Failed()) FX_Render(g_cfg, fi);
+    if (g_inGame && g_cfg.enabled && g_cfg.postFx && !FX_Failed()) FX_Render(g_cfg, fi);
 
     PSUIStatus st; st.dir = g_dir; st.fxStatus = FX_Status(); st.gameInfo = PS_GAME_INFO; st.patchedShaders = World_PatchedCount();
     st.sunTracked = g_sunTracked; st.lutLoaded = FX_LutLoaded(); st.fx = &FX_Stats();
     st.scene = &Scene_Stats();
     st.shadow = &Shadow_Stats(); st.shadowTex = Shadow_Texture(); st.shadowReceivers = World_ShadowReceiverCount(); st.build = &World_BuildStats();
-    UI_Render(g_cfg, w, h, dt, st);
-    Shadow_EndFrame();                  // In-shader method: replays the captured world draws into the map. Deferred: that already happened at the after-scene event
+    UI_Render(g_cfg, w, h, dt, st, g_inGame);   // hidden (and touch-transparent) outside gameplay
+    Shadow_EndFrame();                  // ends this frame's capture (the cascades / mask already ran at the after-scene event)
     gs.Restore();
     World_BeginFrame(g_cfg, wet);       // after the replay: the new light matrix and the new map become active together
     World_OnShaderSelected();           // push the new uniforms into the shader the game keeps bound (it may not re-select it this frame)
@@ -195,13 +217,13 @@ static void OnFrame()
     // 1.4.5 Deferred: nothing is compiled into the game at load, so the guard only covers the first seconds of the shadow pass itself:
     // armed when the first shadows are drawn, removed after 300 frames with shadows (~10 s). Closing the game normally later never trips it.
     static bool s_defGuardDone = false;
-    if (g_cfg.shadowMethod == 0 && g_cfg.shadowGuard && !g_guardActive && !s_defGuardDone && !g_guardTripped && g_guardPath[0] && Shadow_Stats().ready && Shadow_Stats().replayed > 0)
+    if (g_cfg.shadowGuard && !g_guardActive && !s_defGuardDone && !g_guardTripped && g_guardPath[0] && Shadow_Stats().ready && Shadow_Stats().replayed > 0)
     { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("deferred shadow pass: first seconds\n", gf); fclose(gf); g_guardActive = true; } s_defGuardDone = true; }
     if (g_guardActive)
     {
         ++g_guardTotal;
         if (Shadow_Stats().replayed > 0) ++g_guardFrames;
-        const bool done = g_cfg.shadowMethod == 0 ? (g_guardFrames >= 300 || g_guardTotal >= 900) : (g_guardFrames >= 600 || g_guardTotal >= 2400);
+        const bool done = g_guardFrames >= 300 || g_guardTotal >= 900;
         if (done) { remove(g_guardPath); g_guardActive = false; }
     }
 }
@@ -268,10 +290,12 @@ DECL_HOOKi(RQShader_BuildSource, unsigned flags, const char** pxl, const char** 
 // ---------------------------------------------------------------- 1.4.3 deferred shadows (the libZyZyGFX64 way, see ps_scene.h)
 // RenderScene() runs on the GAME thread and only records commands; Scene_PostEvent puts our own command before/after it into the render queue,
 // so OnSceneEvent runs on the render thread exactly when the 3D world is finished and nothing 2D is drawn yet.
-static void OnSceneEvent(int ev)
+static void OnSceneEvent(int ev, int arg)
 {
+    if (ev == PS_EV_TAG) { Shadow_SetDrawKind(arg); return; }        // render thread: the kind of the entity whose draws follow
     if (g_ctx == EGL_NO_CONTEXT || eglGetCurrentContext() != g_ctx) return;
     if (ev == PS_EV_BEFORE_SCENE) { Scene_OnTargetSelected(); Shadow_BeginScene(); return; }
+    if (ev == PS_EV_AFTER_SCENE) Shadow_SetDrawKind(PS_KIND_NONE);
     if (ev == PS_EV_AFTER_SCENE && Shadow_AfterSceneNeeded())
     {
         PSGLState gs; gs.Save();
@@ -283,6 +307,7 @@ static void OnSceneEvent(int ev)
 
 DECL_HOOKv(RenderScene, bool b)
 {
+    g_sceneCalls.fetch_add(1, std::memory_order_relaxed);   // gameplay detection (see OnFrame)
     Scene_PostEvent(PS_EV_BEFORE_SCENE);
     RenderScene(b);
     Scene_PostEvent(PS_EV_AFTER_SCENE);
@@ -328,11 +353,153 @@ DECL_HOOKp(RwCameraSetFarClipPlane, void* cam, float farPlane)
 }
 
 // EntityModel: same as SAShaderL - remember the model of the entity being rendered (CEntity::m_nModelIndex, int16 at 0x32 on arm64)
+// 1.4.6 shadow tags (the libZyZGFX64 way, GTA SA 2.10 arm64 layout): CEntity +0x20 m_pRwObject, +0x32 m_nModelIndex, +0x58 m_nNumLodChildren
+// (non-zero = a LOD stand-in), +0x5a type in bits 0..2 (1 building, 2 vehicle, 3 ped, 4 object); CBaseModelInfo +0x2c flags & 0x7800 = 0x800 / 0x1000: tree / palm.
+// The kind is put into the render queue before the entity's draws and cleared after them, so the shadow capture on the render thread knows
+// what it records: static buildings / trees may be remembered, LOD stand-ins never cast near the camera, everything else casts only while drawn.
+static int g_entityDepth = 0;                   // game thread: only the outermost CEntity::Render posts (CObject::Render -> CEntity::Render ...)
+static int EntityKind(const char* e)
+{
+    if (!*(void* const*)(e + 0x20)) return PS_KIND_NONE;
+    const unsigned type = (unsigned)(*(const unsigned char*)(e + 0x5a)) & 7u;
+    const bool lod = *(const unsigned char*)(e + 0x58) != 0;
+    if (type == 1)
+    {
+        const unsigned short mi = *(const unsigned short*)(e + 0x32);
+        bool tree = false;
+        if (g_pModelInfo && mi < 20000) { const char* info = (const char*)g_pModelInfo[mi]; if (info) { const unsigned f = *(const unsigned short*)(info + 0x2c) & 0x7800u; tree = f == 0x800u || f == 0x1000u; } }
+        if (lod) return tree ? PS_KIND_LODTREE : PS_KIND_LOD;
+        return tree ? PS_KIND_TREE : PS_KIND_BUILDING;
+    }
+    return PS_KIND_DYNAMIC;                     // vehicles, peds, objects (doors, barriers, breakables ... can move or vanish)
+}
 DECL_HOOKv(CEntity_Render, void* self)
 {
     g_entityModel = self ? (int)*(short*)((char*)self + 0x32) : -1;
+    const bool tag = self && g_entityDepth == 0 && Scene_Wanted() && Scene_EventsReady() && Scene_PostEvent(PS_EV_TAG, EntityKind((const char*)self));
+    ++g_entityDepth;
     CEntity_Render(self);
+    --g_entityDepth;
+    if (tag) Scene_PostEvent(PS_EV_TAG, PS_KIND_NONE);
     g_entityModel = -1;         // same as SAShaderL
+}
+
+// ---------------------------------------------------------------- 1.4.6 GOT hooks on libGTASA's GL buffer imports
+// A remembered shadow caster is only valid while its buffers hold the same mesh. The game streams models in / out, re-uses buffer
+// names and refills dynamic buffers; every write by the GAME bumps the buffer's generation (ps_shadow.cpp), a cached caster whose
+// generation changed is dropped instead of drawing whatever the buffer holds now (= the "ghost shadows"). Only libGTASA's import
+// slots are patched, so our own GL calls and other mods are not affected.
+static void (*o_glBufferData)(GLenum, GLsizeiptr, const void*, GLenum) = nullptr;
+static void (*o_glBufferSubData)(GLenum, GLintptr, GLsizeiptr, const void*) = nullptr;
+static void (*o_glDeleteBuffers)(GLsizei, const GLuint*) = nullptr;
+static void* (*o_glMapBufferRange)(GLenum, GLintptr, GLsizeiptr, GLbitfield) = nullptr;
+static std::mutex g_bufMx; static std::vector<GLuint> g_bufPending;      // writes from another thread (shared context): applied on the render thread
+static bool OnRenderThread() { return !g_haveRenderThread || pthread_equal(pthread_self(), g_renderThread); }
+static void BufWrite(GLenum target)
+{
+    if (OnRenderThread()) { Shadow_OnBufferWrite(target); return; }
+    GLint id = 0; glGetIntegerv(target == GL_ARRAY_BUFFER ? GL_ARRAY_BUFFER_BINDING : GL_ELEMENT_ARRAY_BUFFER_BINDING, &id);
+    if (id > 0) { std::lock_guard<std::mutex> l(g_bufMx); if (g_bufPending.size() < 65536) g_bufPending.push_back((GLuint)id); }
+}
+static void h_glBufferData(GLenum t, GLsizeiptr n, const void* d, GLenum u) { o_glBufferData(t, n, d, u); if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t); }
+static void h_glBufferSubData(GLenum t, GLintptr o, GLsizeiptr n, const void* d) { o_glBufferSubData(t, o, n, d); if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t); }
+static void* h_glMapBufferRange(GLenum t, GLintptr o, GLsizeiptr n, GLbitfield a)
+{
+    void* r = o_glMapBufferRange(t, o, n, a);
+    if ((a & GL_MAP_WRITE_BIT) && (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER)) BufWrite(t);
+    return r;
+}
+static void h_glDeleteBuffers(GLsizei n, const GLuint* ids)
+{
+    if (OnRenderThread()) Shadow_OnBufferDelete(n, ids);
+    else if (ids && n > 0) { std::lock_guard<std::mutex> l(g_bufMx); for (GLsizei i = 0; i < n && g_bufPending.size() < 65536; ++i) g_bufPending.push_back(ids[i]); }
+    o_glDeleteBuffers(n, ids);
+}
+static void FlushPendingBufferWrites()
+{
+    std::vector<GLuint> v;
+    { std::lock_guard<std::mutex> l(g_bufMx); if (g_bufPending.empty()) return; v.swap(g_bufPending); }
+    Shadow_OnBufferDelete((GLsizei)v.size(), v.data());
+}
+
+// libGTASA's import slot (GOT entry) of `sym`: walks its dynamic relocations (JMPREL + RELA/REL)
+struct GotQuery { const char* lib; const char* sym; void** slot; };
+static int GotCb(struct dl_phdr_info* info, size_t, void* data)
+{
+    GotQuery* q = (GotQuery*)data;
+    if (!info->dlpi_name || !strstr(info->dlpi_name, q->lib)) return 0;
+    const ElfW(Addr) base = info->dlpi_addr;
+    const ElfW(Dyn)* dyn = nullptr;
+    for (int i = 0; i < info->dlpi_phnum; ++i) if (info->dlpi_phdr[i].p_type == PT_DYNAMIC) dyn = (const ElfW(Dyn)*)(base + info->dlpi_phdr[i].p_vaddr);
+    if (!dyn) return 0;
+    ElfW(Addr) symtab = 0, strtab = 0, jmprel = 0, rel = 0; size_t jmpsz = 0, relsz = 0; ElfW(Sxword) pltrel = 0; bool rela = false;
+    for (const ElfW(Dyn)* d = dyn; d->d_tag != DT_NULL; ++d)
+    {
+        switch (d->d_tag)
+        {
+        case DT_SYMTAB: symtab = d->d_un.d_ptr; break;
+        case DT_STRTAB: strtab = d->d_un.d_ptr; break;
+        case DT_JMPREL: jmprel = d->d_un.d_ptr; break;
+        case DT_PLTRELSZ: jmpsz = d->d_un.d_val; break;
+        case DT_PLTREL: pltrel = d->d_un.d_val; break;
+#if defined(__LP64__)
+        case DT_RELA: rel = d->d_un.d_ptr; rela = true; break;
+        case DT_RELASZ: relsz = d->d_un.d_val; break;
+#else
+        case DT_REL: rel = d->d_un.d_ptr; break;
+        case DT_RELSZ: relsz = d->d_un.d_val; break;
+#endif
+        }
+    }
+    auto fix = [&](ElfW(Addr) a) { return a && a < base ? a + base : a; };      // bionic leaves d_ptr unrelocated
+    symtab = fix(symtab); strtab = fix(strtab); jmprel = fix(jmprel); rel = fix(rel);
+    if (!symtab || !strtab) return 1;
+    const ElfW(Sym)* syms = (const ElfW(Sym)*)symtab; const char* strs = (const char*)strtab;
+    auto scan = [&](ElfW(Addr) tab, size_t sz, bool isRela) -> bool {
+        if (!tab || !sz) return false;
+        const size_t ent = isRela ? sizeof(ElfW(Rela)) : sizeof(ElfW(Rel));
+        for (size_t off = 0; off + ent <= sz; off += ent)
+        {
+            const ElfW(Rel)* r = (const ElfW(Rel)*)(tab + off);       // r_offset / r_info are the first two fields of both
+#if defined(__LP64__)
+            const size_t si = ELF64_R_SYM(r->r_info);
+#else
+            const size_t si = ELF32_R_SYM(r->r_info);
+#endif
+            if (!si) continue;
+            if (!strcmp(strs + syms[si].st_name, q->sym)) { q->slot = (void**)(base + r->r_offset); return true; }
+        }
+        return false;
+    };
+#if defined(__LP64__)
+    const bool jmpRela = pltrel == 0 || pltrel == DT_RELA;
+#else
+    const bool jmpRela = pltrel == DT_RELA;
+#endif
+    if (!scan(jmprel, jmpsz, jmpRela)) scan(rel, relsz, rela);
+    return 1;
+}
+static void** FindGot(const char* lib, const char* sym)
+{
+    GotQuery q{ lib, sym, nullptr };
+    dl_iterate_phdr(GotCb, &q);
+    return q.slot;
+}
+template <typename F> static bool HookGot(const char* sym, F hook, F* orig)
+{
+    void** slot = FindGot("libGTASA.so", sym);
+    if (!slot || !*slot) return false;
+    return aml->HookPLT((void*)slot, (void*)hook, (void**)orig) && *orig;
+}
+static void SetupBufferHooks()
+{
+    const bool d = HookGot("glBufferData", &h_glBufferData, &o_glBufferData);
+    const bool x = HookGot("glDeleteBuffers", &h_glDeleteBuffers, &o_glDeleteBuffers);
+    const bool s = HookGot("glBufferSubData", &h_glBufferSubData, &o_glBufferSubData);
+    const bool m = HookGot("glMapBufferRange", &h_glMapBufferRange, &o_glMapBufferRange);
+    Shadow_SetBufferTracking(d && x);
+    PS_FileLog("shadows: buffer tracking %s (glBufferData %d, glDeleteBuffers %d, glBufferSubData %d, glMapBufferRange %d)%s", d && x ? "on" : "OFF", d, x, s, m,
+               d && x ? "" : " - remembered casters only rely on buffer sizes");
 }
 
 DECL_HOOKp(RwCameraSetNearClipPlane, void* cam, float nearPlane)
@@ -434,10 +601,10 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
         { FILE* lf = fopen(PS_LogFilePath(), "rb"); if (lf) { fseek(lf, 0, SEEK_END); long sz = ftell(lf); fclose(lf); if (sz > 96 * 1024) remove(PS_LogFilePath()); } }
         PS_FileLog("---- launch: Proper GFX Mobile " PS_VERSION " (%d-bit) ----", PS_BITS);
         if (g_cfg.shadows && g_cfg.shadowGuard && access(g_guardPath, F_OK) == 0) { g_guardTripped = true; logger->Info("shadow_guard_v145.txt found: shadows are in SAFE MODE (previous launch did not finish). Menu > DynamicShadows > Retry shadows."); PS_FileLog("shadows: SAFE MODE (shadow_guard_v145.txt from the previous launch)"); }
-        else if (g_cfg.shadows && g_cfg.shadowGuard && g_cfg.shadowMethod == 1) { FILE* gf = fopen(g_guardPath, "w"); if (gf) { fputs("exists while the first minute of shadows has not finished; Retry shadows in the menu or CrashGuard = 0 in " PS_INI_NAME " disables this\n", gf); fclose(gf); g_guardActive = true; } }
         if (g_guardTripped) Shadow_SetGuardFailed(true);
-        // 1.4.3: the patched receivers are only needed by Method = InShader; Deferred leaves the game's shaders alone (like libZyZyGFX64)
-        World_SetCompileShadows(g_cfg.shadows && !g_guardTripped && g_cfg.shadowMethod == 1);
+        // 1.4.6: always Deferred - the game's shaders never get the 1.4.2 shadow receivers (like libZyZGFX64)
+        g_cfg.shadowMethod = 0;
+        World_SetCompileShadows(false);
     }
 
     SET_TO(g_pWetRoads,    aml->GetSym(hGame, "_ZN8CWeather8WetRoadsE"));
@@ -454,6 +621,12 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pWeatherNew,  aml->GetSym(hGame, "_ZN8CWeather14NewWeatherTypeE"));
     SET_TO(g_pWeatherInterp, aml->GetSym(hGame, "_ZN8CWeather18InterpolationValueE"));
     SET_TO(g_pTimeMs,      aml->GetSym(hGame, "_ZN6CTimer22m_snTimeInMillisecondsE"));
+    SET_TO(g_pModelInfo,   aml->GetSym(hGame, "_ZN10CModelInfo16ms_modelInfoPtrsE"));
+    SET_TO(g_pUserPause,   aml->GetSym(hGame, "_ZN6CTimer11m_UserPauseE"));
+    Shadow_SetAlphaTestState((const int*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc"),
+                             (const float*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE6curVal"));
+    PS_FileLog("shadows: alpha-test state %s, model info %s, user pause %s", aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc") ? "found" : "MISSING",
+               g_pModelInfo ? "found" : "MISSING", g_pUserPause ? "found" : "MISSING");
 
     HOOKSYM(OS_ScreenSwapBuffers,     hGame, "_Z20OS_ScreenSwapBuffersv");
     HOOKSYM(AND_TouchEvent,           hGame, "_Z14AND_TouchEventiiii");
@@ -462,9 +635,12 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     if (aml->GetSym(hGame, "_ZN7CEntity6RenderEv")) HOOKSYM(CEntity_Render, hGame, "_ZN7CEntity6RenderEv");
     Scene_SetHandler(OnSceneEvent);
     static void* s_hGame; s_hGame = hGame;
+    if (aml->GetSym(hGame, "_Z11RenderSceneb")) { HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb"); }   // always: also the gameplay detection
+    else PS_FileLog("RenderScene not found - effects / menu button are shown everywhere (no gameplay detection)");
+    g_sceneHooked = aml->GetSym(hGame, "_Z11RenderSceneb") != 0;
+    SetupBufferHooks();
     if (Scene_Init([](const char* n) -> void* { return (void*)aml->GetSym(s_hGame, n); }))
     {
-        if (aml->GetSym(hGame, "_Z11RenderSceneb"))                 HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb");
         if (aml->GetSym(hGame, "_Z25RQ_Command_rqTargetSelectRPc")) HOOKSYM(RQ_Command_rqTargetSelect, hGame, "_Z25RQ_Command_rqTargetSelectRPc");
         PS_FileLog("scene: render-queue symbols found, RenderScene %s, rqTargetSelect %s", aml->GetSym(hGame, "_Z11RenderSceneb") ? "hooked" : "MISSING",
                    aml->GetSym(hGame, "_Z25RQ_Command_rqTargetSelectRPc") ? "hooked" : "MISSING");

@@ -1,4 +1,4 @@
-// Proper GFX Mobile (v1.4.5, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
+// Proper GFX Mobile (v1.4.6, 32-bit source tree: C++/H only, AML + SAUtils) - AML mod for GTA San Andreas Android (2.00 armeabi-v7a / 2.10 arm64-v8a)
 // Everything is hooked by exported symbol name, so one source tree serves both builds.
 #include <mod/amlmod.h>
 #include <mod/logger.h>
@@ -21,6 +21,14 @@
 #include "sautils/isautils.h"
 #include <dirent.h>
 #include <strings.h>
+#include <link.h>
+#include <pthread.h>
+#include <atomic>
+#include <mutex>
+#include <vector>
+#ifndef GL_MAP_WRITE_BIT
+#define GL_MAP_WRITE_BIT 0x0002
+#endif
 
 #if defined(__LP64__)
   #define PS_BITS 64
@@ -30,7 +38,7 @@
   #define PS_GAME_INFO "GTA SA 2.00 (armeabi-v7a)"
 #endif
 
-MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.5, ProperGFX)
+MYMOD(net.propergfx.mobile, Proper GFX Mobile, 1.4.6, ProperGFX)
 NEEDGAME(com.rockstargames.gtasa)
 
 // ---------------------------------------------------------------- game data (all optional, null-checked)
@@ -48,6 +56,13 @@ static void UpdateTimecycStrength();
 static short* g_pWeatherOld = nullptr; static short* g_pWeatherNew = nullptr; static float* g_pWeatherInterp = nullptr;
 
 static PSSettings g_cfg;
+static bool*  g_pUserPause = nullptr;        // CTimer::m_UserPause (the pause menu is open)
+// 1.4.6 gameplay detection: the 3D world is rendered (RenderScene) only in gameplay - never in the main menu, the pause menu or a loading screen
+static std::atomic<unsigned> g_sceneCalls{0};
+static unsigned g_sceneSeen = 0; static int g_noSceneFrames = 1000;
+static bool g_inGame = false, g_sceneHooked = false;
+static pthread_t g_renderThread; static bool g_haveRenderThread = false;
+static void FlushPendingBufferWrites();
 static char g_dir[512] = "";
 static char g_iniPath[600] = "";
 static bool g_initDone = false;
@@ -121,6 +136,14 @@ static void OnFrame()
     float dt = std::chrono::duration<float>(now - last).count(); last = now;
     if (dt > 0.25f) dt = 0.25f; if (dt < 0.0005f) dt = 0.0005f;
     accum += dt; (void)t0;
+    g_renderThread = pthread_self(); g_haveRenderThread = true;
+    FlushPendingBufferWrites();
+    {   // gameplay = the game rendered its 3D world in the last few frames and the pause menu is not open (1.4.6)
+        const unsigned sc = g_sceneCalls.load(std::memory_order_relaxed);
+        if (sc != g_sceneSeen) { g_sceneSeen = sc; g_noSceneFrames = 0; } else if (g_noSceneFrames < 1000) ++g_noSceneFrames;
+        const bool paused = g_pUserPause && *g_pUserPause;
+        g_inGame = (!g_sceneHooked || g_noSceneFrames < 8) && !paused;
+    }
 
     // time of day -> live Day/Night values
     float nf = (g_pClockH && g_pClockM && *g_pClockH < 24 && *g_pClockM < 60) ? PS_NightFactor(*g_pClockH, *g_pClockM) : 0.f;
@@ -155,12 +178,12 @@ static void OnFrame()
     PSFrameInfo fi; fi.w = w; fi.h = h; fi.time = (float)fmod(accum, 3600.0); fi.dt = dt;
     float uw = g_pUnderWater ? *g_pUnderWater : 0.f; fi.underwater = uw < 0.f ? 0.f : (uw > 1.f ? 1.f : uw);
     fi.sunVis = ComputeSun(fi.sunX, fi.sunY);
-    if (g_cfg.enabled && g_cfg.postFx && !FX_Failed()) FX_Render(g_cfg, fi);
+    if (g_inGame && g_cfg.enabled && g_cfg.postFx && !FX_Failed()) FX_Render(g_cfg, fi);
 
     PSUIStatus st; st.dir = g_dir; st.fxStatus = FX_Status(); st.gameInfo = PS_GAME_INFO; st.patchedShaders = World_PatchedCount();
     st.sunTracked = g_sunTracked; st.lutLoaded = FX_LutLoaded(); st.fx = &FX_Stats();
     st.shadow = &Shadow_Stats(); st.shadowTex = Shadow_Texture(); st.shadowReceivers = World_ShadowReceiverCount(); st.build = &World_BuildStats();
-    UI_Render(g_cfg, w, h, dt, st);
+    UI_Render(g_cfg, w, h, dt, st, g_inGame);   // hidden (and touch-transparent) outside gameplay
     Shadow_EndFrame();                  // replays this frame's captured world draws into the shadow map (own FBO)
     gs.Restore();
     World_BeginFrame(g_cfg, wet);       // after the replay: the new light matrix and the new map become active together
@@ -248,6 +271,131 @@ DECL_HOOKi(RQ_Command_rqDrawIndexed, char** ptr)
     Shadow_RecordDraw(mode, count, off);
     return r;
 }
+
+DECL_HOOKv(RenderScene, bool b)
+{
+    g_sceneCalls.fetch_add(1, std::memory_order_relaxed);   // gameplay detection (see OnFrame)
+    RenderScene(b);
+}
+
+// ---------------------------------------------------------------- 1.4.6 GOT hooks on libGTASA's GL buffer imports
+// A remembered shadow caster is only valid while its buffers hold the same mesh. The game streams models in / out, re-uses buffer
+// names and refills dynamic buffers; every write by the GAME bumps the buffer's generation (ps_shadow.cpp), a cached caster whose
+// generation changed is dropped instead of drawing whatever the buffer holds now (= the "ghost shadows"). Only libGTASA's import
+// slots are patched, so our own GL calls and other mods are not affected.
+static void (*o_glBufferData)(GLenum, GLsizeiptr, const void*, GLenum) = nullptr;
+static void (*o_glBufferSubData)(GLenum, GLintptr, GLsizeiptr, const void*) = nullptr;
+static void (*o_glDeleteBuffers)(GLsizei, const GLuint*) = nullptr;
+static void* (*o_glMapBufferRange)(GLenum, GLintptr, GLsizeiptr, GLbitfield) = nullptr;
+static std::mutex g_bufMx; static std::vector<GLuint> g_bufPending;      // writes from another thread (shared context): applied on the render thread
+static bool OnRenderThread() { return !g_haveRenderThread || pthread_equal(pthread_self(), g_renderThread); }
+static void BufWrite(GLenum target)
+{
+    if (OnRenderThread()) { Shadow_OnBufferWrite(target); return; }
+    GLint id = 0; glGetIntegerv(target == GL_ARRAY_BUFFER ? GL_ARRAY_BUFFER_BINDING : GL_ELEMENT_ARRAY_BUFFER_BINDING, &id);
+    if (id > 0) { std::lock_guard<std::mutex> l(g_bufMx); if (g_bufPending.size() < 65536) g_bufPending.push_back((GLuint)id); }
+}
+static void h_glBufferData(GLenum t, GLsizeiptr n, const void* d, GLenum u) { o_glBufferData(t, n, d, u); if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t); }
+static void h_glBufferSubData(GLenum t, GLintptr o, GLsizeiptr n, const void* d) { o_glBufferSubData(t, o, n, d); if (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER) BufWrite(t); }
+static void* h_glMapBufferRange(GLenum t, GLintptr o, GLsizeiptr n, GLbitfield a)
+{
+    void* r = o_glMapBufferRange(t, o, n, a);
+    if ((a & GL_MAP_WRITE_BIT) && (t == GL_ARRAY_BUFFER || t == GL_ELEMENT_ARRAY_BUFFER)) BufWrite(t);
+    return r;
+}
+static void h_glDeleteBuffers(GLsizei n, const GLuint* ids)
+{
+    if (OnRenderThread()) Shadow_OnBufferDelete(n, ids);
+    else if (ids && n > 0) { std::lock_guard<std::mutex> l(g_bufMx); for (GLsizei i = 0; i < n && g_bufPending.size() < 65536; ++i) g_bufPending.push_back(ids[i]); }
+    o_glDeleteBuffers(n, ids);
+}
+static void FlushPendingBufferWrites()
+{
+    std::vector<GLuint> v;
+    { std::lock_guard<std::mutex> l(g_bufMx); if (g_bufPending.empty()) return; v.swap(g_bufPending); }
+    Shadow_OnBufferDelete((GLsizei)v.size(), v.data());
+}
+
+// libGTASA's import slot (GOT entry) of `sym`: walks its dynamic relocations (JMPREL + RELA/REL)
+struct GotQuery { const char* lib; const char* sym; void** slot; };
+static int GotCb(struct dl_phdr_info* info, size_t, void* data)
+{
+    GotQuery* q = (GotQuery*)data;
+    if (!info->dlpi_name || !strstr(info->dlpi_name, q->lib)) return 0;
+    const ElfW(Addr) base = info->dlpi_addr;
+    const ElfW(Dyn)* dyn = nullptr;
+    for (int i = 0; i < info->dlpi_phnum; ++i) if (info->dlpi_phdr[i].p_type == PT_DYNAMIC) dyn = (const ElfW(Dyn)*)(base + info->dlpi_phdr[i].p_vaddr);
+    if (!dyn) return 0;
+    ElfW(Addr) symtab = 0, strtab = 0, jmprel = 0, rel = 0; size_t jmpsz = 0, relsz = 0; ElfW(Sxword) pltrel = 0; bool rela = false;
+    for (const ElfW(Dyn)* d = dyn; d->d_tag != DT_NULL; ++d)
+    {
+        switch (d->d_tag)
+        {
+        case DT_SYMTAB: symtab = d->d_un.d_ptr; break;
+        case DT_STRTAB: strtab = d->d_un.d_ptr; break;
+        case DT_JMPREL: jmprel = d->d_un.d_ptr; break;
+        case DT_PLTRELSZ: jmpsz = d->d_un.d_val; break;
+        case DT_PLTREL: pltrel = d->d_un.d_val; break;
+#if defined(__LP64__)
+        case DT_RELA: rel = d->d_un.d_ptr; rela = true; break;
+        case DT_RELASZ: relsz = d->d_un.d_val; break;
+#else
+        case DT_REL: rel = d->d_un.d_ptr; break;
+        case DT_RELSZ: relsz = d->d_un.d_val; break;
+#endif
+        }
+    }
+    auto fix = [&](ElfW(Addr) a) { return a && a < base ? a + base : a; };      // bionic leaves d_ptr unrelocated
+    symtab = fix(symtab); strtab = fix(strtab); jmprel = fix(jmprel); rel = fix(rel);
+    if (!symtab || !strtab) return 1;
+    const ElfW(Sym)* syms = (const ElfW(Sym)*)symtab; const char* strs = (const char*)strtab;
+    auto scan = [&](ElfW(Addr) tab, size_t sz, bool isRela) -> bool {
+        if (!tab || !sz) return false;
+        const size_t ent = isRela ? sizeof(ElfW(Rela)) : sizeof(ElfW(Rel));
+        for (size_t off = 0; off + ent <= sz; off += ent)
+        {
+            const ElfW(Rel)* r = (const ElfW(Rel)*)(tab + off);       // r_offset / r_info are the first two fields of both
+#if defined(__LP64__)
+            const size_t si = ELF64_R_SYM(r->r_info);
+#else
+            const size_t si = ELF32_R_SYM(r->r_info);
+#endif
+            if (!si) continue;
+            if (!strcmp(strs + syms[si].st_name, q->sym)) { q->slot = (void**)(base + r->r_offset); return true; }
+        }
+        return false;
+    };
+#if defined(__LP64__)
+    const bool jmpRela = pltrel == 0 || pltrel == DT_RELA;
+#else
+    const bool jmpRela = pltrel == DT_RELA;
+#endif
+    if (!scan(jmprel, jmpsz, jmpRela)) scan(rel, relsz, rela);
+    return 1;
+}
+static void** FindGot(const char* lib, const char* sym)
+{
+    GotQuery q{ lib, sym, nullptr };
+    dl_iterate_phdr(GotCb, &q);
+    return q.slot;
+}
+template <typename F> static bool HookGot(const char* sym, F hook, F* orig)
+{
+    void** slot = FindGot("libGTASA.so", sym);
+    if (!slot || !*slot) return false;
+    return aml->HookPLT((void*)slot, (void*)hook, (void**)orig) && *orig;
+}
+static void SetupBufferHooks()
+{
+    const bool d = HookGot("glBufferData", &h_glBufferData, &o_glBufferData);
+    const bool x = HookGot("glDeleteBuffers", &h_glDeleteBuffers, &o_glDeleteBuffers);
+    const bool s = HookGot("glBufferSubData", &h_glBufferSubData, &o_glBufferSubData);
+    const bool m = HookGot("glMapBufferRange", &h_glMapBufferRange, &o_glMapBufferRange);
+    Shadow_SetBufferTracking(d && x);
+    PS_FileLog("shadows: buffer tracking %s (glBufferData %d, glDeleteBuffers %d, glBufferSubData %d, glMapBufferRange %d)%s", d && x ? "on" : "OFF", d, x, s, m,
+               d && x ? "" : " - remembered casters only rely on buffer sizes");
+}
+
 
 DECL_HOOKv(AND_TouchEvent, int type, int finger, int x, int y)
 {
@@ -366,6 +514,11 @@ extern "C" __attribute__((visibility("default"))) void OnModLoad()
     SET_TO(g_pWeatherNew,  aml->GetSym(hGame, "_ZN8CWeather14NewWeatherTypeE"));
     SET_TO(g_pWeatherInterp, aml->GetSym(hGame, "_ZN8CWeather18InterpolationValueE"));
 
+    SET_TO(g_pUserPause,   aml->GetSym(hGame, "_ZN6CTimer11m_UserPauseE"));
+    Shadow_SetAlphaTestState((const int*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE7curFunc"),
+                             (const float*)aml->GetSym(hGame, "_ZZ25RQ_Command_rqSetAlphaTestRPcE6curVal"));
+    if (aml->GetSym(hGame, "_Z11RenderSceneb")) { HOOKSYM(RenderScene, hGame, "_Z11RenderSceneb"); g_sceneHooked = true; }
+    SetupBufferHooks();
     HOOKSYM(OS_ScreenSwapBuffers,     hGame, "_Z20OS_ScreenSwapBuffersv");
     HOOKSYM(AND_TouchEvent,           hGame, "_Z14AND_TouchEventiiii");
     HOOKSYM(RwCameraSetNearClipPlane, hGame, "_Z24RwCameraSetNearClipPlaneP8RwCameraf");

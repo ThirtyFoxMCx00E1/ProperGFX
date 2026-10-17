@@ -13,14 +13,17 @@
 #include <GLES2/gl2.h>
 #include <stdint.h>
 
-enum PSSceneEvent { PS_EV_BEFORE_SCENE = 1, PS_EV_AFTER_SCENE = 2 };
-typedef void (*PSSceneEventFn)(int ev);
+enum PSSceneEvent { PS_EV_BEFORE_SCENE = 1, PS_EV_AFTER_SCENE = 2, PS_EV_TAG = 3 };
+// 1.4.6: PS_EV_TAG carries an entity kind (PSDrawKind) in `arg`: posted by the CEntity::Render hook before (kind) and after (0)
+// every entity, so the render thread knows which draws are LOD stand-ins / static buildings / things that move (the libZyZGFX64 way).
+enum PSDrawKind { PS_KIND_NONE = 0, PS_KIND_BUILDING = 1, PS_KIND_TREE = 2, PS_KIND_LOD = 3, PS_KIND_LODTREE = 4, PS_KIND_DYNAMIC = 5 };
+typedef void (*PSSceneEventFn)(int ev, int arg);
 
 struct PSSceneStats
 {
     bool  rqSymbols = false, rqReady = false, rqBadLayout = false, chained = false, threaded = false;
     int   rqSlot = -1;
-    uint32_t posted[3] = {0, 0, 0}, ran[3] = {0, 0, 0}, skippedFull = 0;
+    uint32_t posted[4] = {0, 0, 0, 0}, ran[4] = {0, 0, 0, 0}, skippedFull = 0;
     // depth upgrade
     int   sceneFbo = 0, w = 0, h = 0, depthBits = 0, stencilBits = 0, swaps = 0, failures = 0, targets = 0;
     GLuint depthTex = 0;
@@ -36,7 +39,8 @@ bool  Scene_Init(PSSymLookupFn lookup);
 void  Scene_SetHandler(PSSceneEventFn fn);      // called on the render thread for every event
 void  Scene_SetWanted(bool on);                 // depth upgrade + events only while deferred shadows are on
 bool  Scene_Wanted();
-void  Scene_PostEvent(int ev);                  // game thread (RenderScene hook)
+bool  Scene_PostEvent(int ev, int arg = 0);     // game thread (RenderScene / CEntity::Render hooks)
+bool  Scene_EventsReady();                      // the render-queue command slot is registered
 void  Scene_SetScreenSize(int w, int h);        // EGL surface size (render thread, every frame)
 void  Scene_OnTargetSelected();                 // render thread, right after the game's rqTargetSelect
 bool  Scene_DepthOf(GLint fbo, GLuint& tex, int& w, int& h);   // our (or a foreign) depth texture on that framebuffer
@@ -44,4 +48,4 @@ void  Scene_ContextLost();
 const PSSceneStats& Scene_Stats();
 
 // host tests: run an event as if the render queue delivered it
-void  Scene_RunEventForTest(int ev);
+void  Scene_RunEventForTest(int ev, int arg = 0);

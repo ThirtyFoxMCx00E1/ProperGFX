@@ -189,6 +189,15 @@ int main()
       float a2[3] = {6.5f,6.25f,3.f}, b2[3] = {12.5f,6.25f,3.f}, c2[3] = {12.5f,6.25f,9.f}, d2[3] = {6.5f,6.25f,9.f}; Quad(v, i, a2, b2, c2, d2, nn);
       float a3[3] = {9.25f,3.25f,3.f}, b3[3] = {9.25f,9.25f,3.f}, c3[3] = {9.25f,9.25f,9.f}, d3[3] = {9.25f,3.25f,9.f}; float nx[3] = {1,0,0}; Quad(v, i, a3, b3, c3, d3, nx);
       scene.push_back(MakeMesh(v, i, texLeaf)); }
+    // 1.4.6: a kiosk (mesh 4) for the cache / ghost / LOD tests, hidden unless a test shows it
+    { std::vector<V> v; std::vector<unsigned short> i; Box(v, i, 14.f, -12.f, 0, 16.f, -10.f, 4.f); scene.push_back(MakeMesh(v, i, texWall)); }
+    // per mesh: entity kind (what CEntity::Render tags), drawn this frame, blended + alpha-tested like SA's foliage
+    std::vector<int> kind = { PS_KIND_BUILDING, PS_KIND_BUILDING, PS_KIND_TREE, PS_KIND_TREE, PS_KIND_BUILDING };
+    std::vector<int> visible = { 1, 1, 1, 1, 0 };
+    std::vector<int> foliage = { 0, 0, 0, 1, 0 };
+    static int s_atFunc = 0x0207; static float s_atRef = 0.f;          // the game's RQ_Command_rqSetAlphaTest statics
+    Shadow_SetAlphaTestState(&s_atFunc, &s_atRef);
+    Shadow_SetBufferTracking(true);
 
     // the game's scene target: colour texture + DEPTH RENDERBUFFER (what GTA SA 2.10 does), the size of the screen
     GLuint sceneTex, sceneRb, sceneFbo;
@@ -203,7 +212,8 @@ int main()
     float proj[16], view[16];
     const float eye[3] = { 30.f, -26.f, 20.f }, look[3] = { 4.f, 3.f, 1.5f };
     Perspective(proj, 0.80f, (float)W / H, 0.5f, 400.f); LookAt(view, eye, look);
-    Scene_SetHandler([](int ev) {
+    Scene_SetHandler([](int ev, int arg) {
+        if (ev == PS_EV_TAG) { Shadow_SetDrawKind(arg); return; }
         if (ev == PS_EV_BEFORE_SCENE) { Scene_OnTargetSelected(); Shadow_BeginScene(); }
         if (ev == PS_EV_AFTER_SCENE && Shadow_AfterSceneNeeded()) { PSGLState gs; gs.Save(); Shadow_AfterScene(); gs.Restore(); }
     });
@@ -217,8 +227,13 @@ int main()
         Scene_RunEventForTest(PS_EV_BEFORE_SCENE);
         glViewport(0, 0, W, H); glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glDisable(GL_BLEND); glDisable(GL_CULL_FACE);
         glClearColor(0.55f, 0.7f, 0.95f, 1.f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-        for (const Mesh& m : scene)
+        for (size_t mi = 0; mi < scene.size(); ++mi)
         {
+            const Mesh& m = scene[mi];
+            if (!visible[mi]) continue;
+            Scene_RunEventForTest(PS_EV_TAG, kind[mi]);                   // CEntity::Render: tag before the entity
+            if (foliage[mi]) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); s_atFunc = 0x0204; s_atRef = 0.5f; }
+            else { glDisable(GL_BLEND); s_atFunc = 0x0207; s_atRef = 0.f; }
             glUseProgram(prog);
             auto U = [&](const char* nme) { return glGetUniformLocation(prog, nme); };
             glUniformMatrix4fv(U("ProjMatrix"), 1, GL_FALSE, proj); glUniformMatrix4fv(U("ViewMatrix"), 1, GL_FALSE, view); glUniformMatrix4fv(U("ObjMatrix"), 1, GL_FALSE, m.obj);
@@ -234,7 +249,9 @@ int main()
             glDrawElements(GL_TRIANGLES, m.count, GL_UNSIGNED_SHORT, (void*)0);
             if (Shadow_WantCapture()) Shadow_RecordDraw(0, m.count, 0);          // the rqDrawIndexed hook
             else if (Shadow_WantCamera()) Shadow_RecordCamera();
+            Scene_RunEventForTest(PS_EV_TAG, PS_KIND_NONE);               // ... and the reset after it
         }
+        glDisable(GL_BLEND);
         Scene_RunEventForTest(PS_EV_AFTER_SCENE);                      // what the render queue delivers right after RenderScene
         PSGLState gs; gs.Save(); Shadow_EndFrame(); gs.Restore();     // OS_ScreenSwapBuffers
     };
@@ -264,8 +281,8 @@ int main()
     CHECK(rS < 0.62f, "ground behind the house is darkened (deferred mask)");
     CHECK(rL > 0.97f, "open ground stays lit (no acne from depth-rebuilt normals)");
     CHECK(rW > 0.93f, "the sun-facing wall stays lit");
-    CHECK(rLeaf < 0.8f, "alpha-tested foliage casts a shadow");
-    CHECK(rHole > 0.95f, "outside the foliage shape is not shadowed");
+    CHECK(rLeaf < 0.8f, "BLENDED + alpha-tested foliage (SA trees) casts its leaf shadow (1.4.5 dropped every blended draw)");
+    CHECK(rHole > 0.95f, "outside the foliage shape is not shadowed (cut out with the game's alpha-test reference, no box)");
     { FILE* f1 = fopen("/tmp/def_with.rgba", "wb"); fwrite(with.data(), 1, with.size(), f1); fclose(f1); FILE* f2 = fopen("/tmp/def_without.rgba", "wb"); fwrite(without.data(), 1, without.size(), f2); fclose(f2); }
     // half-resolution mask
     st.shadowMaskHalf = true; for (int f = 0; f < 3; ++f) frame(sun); std::vector<unsigned char> half; grab(half);
@@ -291,13 +308,57 @@ int main()
     { float nsun[3] = { 0.3f, 0.4f, -0.5f }; for (int f = 0; f < 3; ++f) frame(nsun); std::vector<unsigned char> night; grab(night);
       std::vector<unsigned char> nightOff; shadowsOn = false; for (int f = 0; f < 2; ++f) frame(nsun); grab(nightOff); shadowsOn = true;
       CHECK(fabsf(at(night, pShadow) - at(nightOff, pShadow)) < 2.f, "sun below the horizon: no shadow mask"); }
+    // ---------------- 1.4.6: cache / ghost / LOD / stability ----------------
+    {
+        const float pK[3] = { 17.0f, -9.0f, 0.f };                     // ground in the kiosk's shadow
+        { int px, py; Project(proj, view, pK, W, H, &px, &py); CHECK(px > 2 && px < W - 2 && py > 2 && py < H - 2, "kiosk shadow spot is on screen"); }
+        std::vector<unsigned char> fr;
+        auto kioskShade = [&]() { grab(fr); return at(fr, pK) / at(without, pK); };
+        // A: static building, buffers untouched: remembered for a capture after the game stops drawing it, gone once it is clearly not there
+        kind[4] = PS_KIND_BUILDING; visible[4] = 1; for (int f = 0; f < 3; ++f) frame(sun);
+        const float a0 = kioskShade();
+        visible[4] = 0; frame(sun); const float a1 = kioskShade();
+        for (int f = 0; f < 3; ++f) frame(sun); const float a2 = kioskShade();
+        printf("      kiosk (building): drawn %.2f, 1 frame later %.2f, 4 frames later %.2f\n", a0, a1, a2);
+        CHECK(a0 < 0.62f, "a tagged building casts");
+        CHECK(a2 > 0.97f, "a building the game stopped drawing in front of the camera leaves no ghost");
+        // B: the game re-uses the kiosk's vertex buffer for another mesh (streaming): the remembered caster dies at once
+        visible[4] = 1; for (int f = 0; f < 3; ++f) frame(sun);
+        visible[4] = 0;
+        { std::vector<V> v; std::vector<unsigned short> i; Box(v, i, 300.f, 300.f, 0, 301.f, 301.f, 1.f);
+          glBindBuffer(GL_ARRAY_BUFFER, scene[4].vbo); glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(V), v.data(), GL_STATIC_DRAW);
+          Shadow_OnBufferWrite(GL_ARRAY_BUFFER);                          // what the GOT hook on libGTASA's glBufferData reports
+          glBindBuffer(GL_ARRAY_BUFFER, 0); }
+        frame(sun); const float b1 = kioskShade();
+        printf("      kiosk buffer re-used: 1 frame later %.2f\n", b1);
+        CHECK(b1 > 0.97f, "buffer re-used by the game -> the remembered caster is dropped immediately (no ghost shadow)");
+        { std::vector<V> v; std::vector<unsigned short> i; Box(v, i, 14.f, -12.f, 0, 16.f, -10.f, 4.f);    // restore the kiosk
+          glBindBuffer(GL_ARRAY_BUFFER, scene[4].vbo); glBufferData(GL_ARRAY_BUFFER, v.size() * sizeof(V), v.data(), GL_STATIC_DRAW); Shadow_OnBufferWrite(GL_ARRAY_BUFFER); glBindBuffer(GL_ARRAY_BUFFER, 0); }
+        // C: something that can move (object / vehicle): casts only while drawn
+        kind[4] = PS_KIND_DYNAMIC; visible[4] = 1; for (int f = 0; f < 3; ++f) frame(sun); const float c0 = kioskShade();
+        visible[4] = 0; frame(sun); const float c1 = kioskShade();
+        printf("      kiosk (dynamic): drawn %.2f, 1 frame later %.2f\n", c0, c1);
+        CHECK(c0 < 0.62f && c1 > 0.97f, "objects / vehicles cast while drawn and are never remembered (no ghost where they were)");
+        // D: LOD tree stand-in never casts (its crossed boxes are not the tree's shape)
+        kind[4] = PS_KIND_LODTREE; visible[4] = 1; for (int f = 0; f < 3; ++f) frame(sun); const float d0 = kioskShade();
+        printf("      kiosk (LOD tree): %.2f\n", d0);
+        CHECK(d0 > 0.97f, "LOD tree boxes cast no shadow");
+        visible[4] = 0; kind[4] = PS_KIND_BUILDING; for (int f = 0; f < 3; ++f) frame(sun);
+        // E: stable scene, update every 2nd frame: the mask is identical every frame (no on/off flicker)
+        st.shadowEvery = 2;
+        float mn = 1e9f, mx = -1e9f, ln = 1e9f, lx = -1e9f;
+        for (int f = 0; f < 10; ++f) { frame(sun); grab(fr); const float v = at(fr, pShadow), l = at(fr, pLeaf); mn = fminf(mn, v); mx = fmaxf(mx, v); ln = fminf(ln, l); lx = fmaxf(lx, l); }
+        printf("      10 frames (update every 2): behind house %.1f..%.1f, foliage %.1f..%.1f\n", mn, mx, ln, lx);
+        CHECK(mx - mn < 1.5f && lx - ln < 1.5f && mx / at(without, pShadow) < 0.62f, "shadows are steady from frame to frame (no flicker)");
+        st.shadowEvery = 1;
+    }
     // ---- render queue: our command goes through the game's own command table, between the game's commands
     {
         MockQueueInit(false);
         static void* self; self = dlopen(nullptr, RTLD_NOW);
         CHECK(Scene_Init([](const char* n) -> void* { return dlsym(self, n); }), "render-queue symbols resolve (renderQueue, OS_Mutex*, rqDebugMarker, RenderQueue::Process)");
         int seen[3] = {0, 0, 0}; static int* sp; sp = seen;
-        Scene_SetHandler([](int ev) { if (ev >= 0 && ev < 3) ++sp[ev]; });
+        Scene_SetHandler([](int ev, int) { if (ev >= 0 && ev < 3) ++sp[ev]; });
         Scene_SetWanted(true);
         MockMarker(); Scene_PostEvent(PS_EV_BEFORE_SCENE); MockMarker(); Scene_PostEvent(PS_EV_AFTER_SCENE); MockMarker();
         RQP(g_rqMem);
@@ -306,6 +367,14 @@ int main()
         CHECK(q.rqReady && q.rqSlot == 12, "our handler took the rqDebugMarker slot");
         CHECK(seen[1] == 1 && seen[2] == 1, "before/after-scene events are delivered on Process (not threaded: right away)");
         CHECK(g_markers == 3, "the game's own debug markers still reach the original handler");
+        {   // 1.4.6: entity tags carry their kind through the queue
+            static int lastTag; lastTag = -1;
+            Scene_SetHandler([](int ev, int arg) { if (ev == PS_EV_TAG) lastTag = arg; });
+            CHECK(Scene_PostEvent(PS_EV_TAG, PS_KIND_LOD), "tag event posted"); RQP(g_rqMem);
+            CHECK(lastTag == PS_KIND_LOD, "the tag's kind arrives on the render side");
+            Scene_PostEvent(PS_EV_TAG, PS_KIND_NONE); RQP(g_rqMem);
+            CHECK(lastTag == PS_KIND_NONE, "the reset tag arrives too");
+        }
         CHECK(*(char**)(g_rqMem + 0x418) == *(char**)(g_rqMem + 0x420) && g_readPos == *(char**)(g_rqMem + 0x420), "committed end = write pointer, the stream is consumed exactly");
         // a full buffer is never overrun
         *(char**)(g_rqMem + 0x400) = *(char**)(g_rqMem + 0x420) + 30;
